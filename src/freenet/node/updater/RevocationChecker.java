@@ -1,6 +1,7 @@
 package freenet.node.updater;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 
 import com.db4o.ObjectContainer;
@@ -19,8 +20,11 @@ import freenet.support.Logger.LogLevel;
 import freenet.support.api.Bucket;
 import freenet.support.io.ArrayBucket;
 import freenet.support.io.BucketTools;
+import freenet.support.io.ByteArrayRandomAccessThing;
 import freenet.support.io.FileBucket;
 import freenet.support.io.FileUtil;
+import freenet.support.io.RandomAccessFileWrapper;
+import freenet.support.io.RandomAccessThing;
 
 /**
  * Fetches the revocation key. Each time it starts, it will try to fetch it until it has 3 DNFs. If it ever finds it, it will
@@ -44,6 +48,8 @@ public class RevocationChecker implements ClientGetCallback, RequestClient {
 	private volatile boolean blown;
 	
 	private File blobFile;
+	/** The original binary blob bucket. */
+	private ArrayBucket blobBucket;
 
 	public RevocationChecker(NodeUpdateManager manager, File blobFile) {
 		this.manager = manager;
@@ -204,6 +210,9 @@ public class RevocationChecker implements ClientGetCallback, RequestClient {
 			Logger.error(this, "No temporary binary blob file moving it: may not be able to propagate revocation, bug???");
 			return;
 		}
+		synchronized(this) {
+			blobBucket = (ArrayBucket) tmpBlob;
+		}
 		FileBucket fb = new FileBucket(blobFile, false, false, false, false, false);
 		try {
 			BucketTools.copy(tmpBlob, fb);
@@ -228,7 +237,18 @@ public class RevocationChecker implements ClientGetCallback, RequestClient {
 			return; // cancelled by us above, or killed; either way irrelevant and doesn't need to be restarted
 		}
 		if(e.isFatal()) {
-			manager.blow("Permanent error fetching revocation (error inserting the revocation key?): "+e.toString(), true);
+			if(!e.isDefinitelyFatal()) {
+				// INTERNAL_ERROR could be related to the key but isn't necessarily.
+				System.err.println("Auto-update is failing with an internal error:");
+				System.err.println(e);
+				e.printStackTrace();
+				System.err.println("Please fix this and restart Freenet!");
+				// Could be out of disk space???
+				manager.blow("Checking for revocation key is failing with an internal error: "+e.toString(), true);
+				return;
+			}
+			// Really fatal, i.e. something was inserted but can't be decoded.
+			manager.blow("Permanent error fetching revocation (error inserting the revocation key?): "+e.toString(), false);
 			moveBlob(blob);
 			return;
 		}
@@ -280,9 +300,38 @@ public class RevocationChecker implements ClientGetCallback, RequestClient {
 		return blobFile.length();
 	}
 
-	/** Get the binary blob, if we have fetched it. */
-	public File getBlobFile() {
+	public Bucket getBlobBucket() {
 		if(!manager.isBlown()) return null;
+		synchronized(this) {
+			if(blobBucket != null)
+				return blobBucket;
+		}
+		File f = getBlobFile();
+		if(f == null) return null;
+		return new FileBucket(f, true, false, false, false, false);
+	}
+	
+	public RandomAccessThing getBlobThing() {
+		if(!manager.isBlown()) return null;
+		synchronized(this) {
+			if(blobBucket != null) {
+				ByteArrayRandomAccessThing t = new ByteArrayRandomAccessThing(blobBucket.toByteArray());
+				t.setReadOnly();
+				return t;
+			}
+		}
+		File f = getBlobFile();
+		if(f == null) return null;
+		try {
+			return new RandomAccessFileWrapper(f, "r");
+		} catch(FileNotFoundException e) {
+			Logger.error(this, "We do not have the blob file for the revocation even though we have successfully downloaded it!", e);
+			return null;
+		}
+	}
+	
+	/** Get the binary blob, if we have fetched it. */
+	private File getBlobFile() {
 		if(blobFile.exists()) return blobFile;
 		return null;
 	}

@@ -5244,7 +5244,14 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 				}
 			}
 			// Double-check before blocking, prevent race condition.
+			long now = System.currentTimeMillis();
+			boolean anyValid = false;
 			for(PeerNode p : all) {
+				if((!p.isRoutable()) || p.isInMandatoryBackoff(now, realTime)) {
+					if(logMINOR) Logger.minor(this, "Peer is not valid in waitForAny(): "+p);
+					continue;
+				}
+				anyValid = true;
 				RequestLikelyAcceptedState accept = p.outputLoadTracker(realTime).tryRouteTo(tag, RequestLikelyAcceptedState.LIKELY, offeredKey);
 				if(accept != null) {
 					if(logMINOR) Logger.minor(this, "tryRouteTo() pre-wait check returned "+accept);
@@ -5273,6 +5280,10 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 				}
 			}
 			if(maxWait == 0) return null;
+			if(!anyValid) {
+				if(logMINOR) Logger.minor(this, "None valid to wait for on "+this);
+				return null;
+			}
 			synchronized(this) {
 				if(logMINOR) Logger.minor(this, "Waiting for any node to wake up "+this+" : "+Arrays.toString(waitingFor.toArray())+" (for up to "+maxWait+"ms)");
 				long waitStart = System.currentTimeMillis();
@@ -5440,8 +5451,14 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		private final EnumMap<RequestType,TreeMap<Long,SlotWaiter>> slotWaiters = new EnumMap<RequestType,TreeMap<Long,SlotWaiter>>(RequestType.class);
 		
 		boolean queueSlotWaiter(SlotWaiter waiter) {
-			if(!isRoutable()) return false;
-			if(isInMandatoryBackoff(System.currentTimeMillis(), realTime)) return false;
+			if(!isRoutable()) {
+				if(logMINOR) Logger.minor(this, "Not routable, so not queueing");
+				return false;
+			}
+			if(isInMandatoryBackoff(System.currentTimeMillis(), realTime)) {
+				if(logMINOR) Logger.minor(this, "In mandatory backoff, so not queueing");
+				return false;
+			}
 			boolean noLoadStats = false;
 			PeerNode[] all = null;
 			boolean queued = false;
@@ -5462,6 +5479,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			else if(queued) {
 				if((!isRoutable()) || (isInMandatoryBackoff(System.currentTimeMillis(), realTime))) {
 					// Has lost connection etc since start of the method.
+					if(logMINOR) Logger.minor(this, "Queued but not routable or in mandatory backoff, failing");
 					waiter.onFailed(PeerNode.this, true);
 					return false;
 				}
