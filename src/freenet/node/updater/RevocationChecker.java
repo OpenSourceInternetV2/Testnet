@@ -76,7 +76,8 @@ public class RevocationChecker implements ClientGetCallback, RequestClient {
 		if(blobFile.exists()) {
 			ArrayBucket bucket = new ArrayBucket();
 			try {
-				BucketTools.copy(new FileBucket(blobFile, true, false, false, false, false), bucket);
+				BucketTools.copy(new FileBucket(blobFile, true, false, false, false, true), bucket);
+				// Allow to free if bogus.
 				manager.uom.processRevocationBlob(bucket, "disk", true);
 			} catch (IOException e) {
 				Logger.error(this, "Failed to read old revocation blob: "+e, e);
@@ -210,8 +211,27 @@ public class RevocationChecker implements ClientGetCallback, RequestClient {
 			Logger.error(this, "No temporary binary blob file moving it: may not be able to propagate revocation, bug???");
 			return;
 		}
-		synchronized(this) {
-			blobBucket = (ArrayBucket) tmpBlob;
+		if(tmpBlob instanceof ArrayBucket) {
+			synchronized(this) {
+				blobBucket = (ArrayBucket) tmpBlob;
+			}
+		} else {
+			synchronized(this) {
+				if(tmpBlob == blobFile) return;
+				if(tmpBlob.equals(blobFile)) return;
+			}
+			try {
+				ArrayBucket buf = new ArrayBucket(BucketTools.toByteArray(tmpBlob));
+				synchronized(this) {
+					blobBucket = buf;
+				}
+			} catch (IOException e) {
+				System.err.println("Unable to copy data from revocation bucket!");
+				System.err.println("This should not happen and indicates there may be a problem with the auto-update checker.");
+				// Don't blow(), as that's already happened.
+				return;
+			}
+			System.out.println("Unexpected blob file in revocation checker: "+tmpBlob);
 		}
 		FileBucket fb = new FileBucket(blobFile, false, false, false, false, false);
 		try {

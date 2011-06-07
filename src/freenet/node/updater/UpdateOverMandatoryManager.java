@@ -58,6 +58,7 @@ import freenet.support.SizeUtil;
 import freenet.support.TimeUtil;
 import freenet.support.Logger.LogLevel;
 import freenet.support.api.Bucket;
+import freenet.support.io.ArrayBucket;
 import freenet.support.io.FileBucket;
 import freenet.support.io.RandomAccessFileWrapper;
 import freenet.support.io.RandomAccessThing;
@@ -1015,7 +1016,7 @@ public class UpdateOverMandatoryManager implements RequestClient {
 	 * Process a binary blob for a revocation certificate (the revocation key).
 	 * @param temp The file it was written to.
 	 */
-	void processRevocationBlob(final Bucket temp, final String source, boolean fromDisk) {
+	void processRevocationBlob(final Bucket temp, final String source, final boolean fromDisk) {
 
 		SimpleBlockSet blocks = new SimpleBlockSet();
 
@@ -1071,18 +1072,7 @@ public class UpdateOverMandatoryManager implements RequestClient {
 
 		File f;
 		FileBucket b = null;
-		try {
-			f = File.createTempFile("revocation-", ".fblob.tmp", updateManager.node.clientCore.getPersistentTempDir());
-			b = new FileBucket(f, false, false, true, true, true);
-		} catch(IOException e) {
-			Logger.error(this, "Cannot share revocation key from " + source + " with our peers because cannot write the cleaned version to disk: " + e, e);
-			System.err.println("Cannot share revocation key from " + source + " with our peers because cannot write the cleaned version to disk: " + e);
-			e.printStackTrace();
-			b = null;
-			f = null;
-		}
-		final FileBucket cleanedBlob = b;
-		final File cleanedBlobFile = f;
+		final ArrayBucket cleanedBlob = new ArrayBucket();
 
 		ClientGetCallback myCallback = new ClientGetCallback() {
 
@@ -1099,7 +1089,9 @@ public class UpdateOverMandatoryManager implements RequestClient {
 					System.err.println("Got revocation certificate from " + source + " (fatal error i.e. someone with the key inserted bad data) : "+e);
 					// Blow the update, and propagate the revocation certificate.
 					updateManager.revocationChecker.onFailure(e, state, cleanedBlob);
-					temp.free();
+					// Don't delete it if it's from disk, as it's already in the right place.
+					if(!fromDisk)
+						temp.free();
 
 					insertBlob(updateManager.revocationChecker.getBlobBucket(), "revocation");
 
@@ -1107,6 +1099,9 @@ public class UpdateOverMandatoryManager implements RequestClient {
 					Logger.error(this, "Failed to fetch revocation certificate from blob from " + source + " : "+e+" : this is almost certainly bogus i.e. the auto-update is fine but the node is broken.");
 					System.err.println("Failed to fetch revocation certificate from blob from " + source + " : "+e+" : this is almost certainly bogus i.e. the auto-update is fine but the node is broken.");
 					// This is almost certainly bogus.
+					// Delete it, even if it's fromDisk.
+					temp.free();
+					cleanedBlob.free();
 				}
 			}
 			public void onMajorProgress(ObjectContainer container) {
@@ -1116,7 +1111,8 @@ public class UpdateOverMandatoryManager implements RequestClient {
 			public void onSuccess(FetchResult result, ClientGetter state, ObjectContainer container) {
 				System.err.println("Got revocation certificate from " + source);
 				updateManager.revocationChecker.onSuccess(result, state, cleanedBlob);
-				temp.free();
+				if(!fromDisk)
+					temp.free();
 				insertBlob(updateManager.revocationChecker.getBlobBucket(), "revocation");
 			}
 		};
@@ -1194,7 +1190,7 @@ public class UpdateOverMandatoryManager implements RequestClient {
 		final BulkTransmitter bt;
 		final RandomAccessFileWrapper raf;
 
-		if (source.isOpennet() && updateManager.isSeednode()) {
+		if (source.isOpennet() && updateManager.dontAllowUOM()) {
 			Logger.normal(this, "Peer " + source
 					+ " asked us for the blob file for " + name
 					+ "; We are a seenode, so we ignore it!");
