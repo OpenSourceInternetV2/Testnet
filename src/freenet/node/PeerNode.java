@@ -277,6 +277,8 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 
 	/** Peer node public key; changing this means new noderef */
 	final DSAPublicKey peerPubKey;
+	final byte[] pubKeyHash;
+	final byte[] pubKeyHashHash;
 	private boolean isSignatureVerificationSuccessfull;
 	/** Incoming setup key. Used to decrypt incoming auth packets.
 	* Specifically: K_node XOR H(setupKey).
@@ -516,15 +518,18 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			sfs = fs.subset("dsaPubKey");
 			if(sfs == null || peerCryptoGroup == null)
 				throw new FSParseException("No dsaPubKey - very old reference?");
-			else
+			else {
 				this.peerPubKey = DSAPublicKey.create(sfs, peerCryptoGroup);
+				pubKeyHash = SHA256.digest(peerPubKey.asBytes());
+				pubKeyHashHash = SHA256.digest(pubKeyHash);
+			}
 
 			String signature = fs.get("sig");
 			if(!noSig) {
 				try {
 					boolean failed = false;
 					if(signature == null || peerCryptoGroup == null || peerPubKey == null)
-						failed = false;
+						failed = true;
 					else {
 						fs.removeValue("sig");
 						String toVerify = fs.toOrderedString();
@@ -578,7 +583,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 				throw new FSParseException(e);
 			}
 		} else {
-			identity = peerPubKey.asBytesHash();
+			identity = pubKeyHash;
 		}
 
 		if(identity == null)
@@ -1939,7 +1944,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 
 	private String shortToString;
 	private void updateShortToString() {
-		shortToString = super.toString() + "@TESTNET:" + testnetID + '@' + detectedPeer + '@' + HexUtil.bytesToHex(identity);
+		shortToString = super.toString() + "@TESTNET:" + testnetID + '@' + detectedPeer + '@' + HexUtil.bytesToHex(pubKeyHash);
 	}
 
 	/**
@@ -3153,7 +3158,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			return true;
 		if(o instanceof PeerNode) {
 			PeerNode pn = (PeerNode) o;
-			return Arrays.equals(pn.identity, identity);
+			return Arrays.equals(pn.pubKeyHash, pubKeyHash);
 		} else
 			return false;
 	}
@@ -4160,6 +4165,14 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 
 	public byte[] getIdentity() {
 		return identity;
+	}
+	
+	public byte[] getPubKeyHash() {
+		return pubKeyHash;
+	}
+
+	public byte[] getPubKeyHashHash() {
+		return pubKeyHashHash;
 	}
 
 	public boolean neverConnected() {

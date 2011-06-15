@@ -379,13 +379,14 @@ public final class FProxyToadlet extends Toadlet implements RequestClient {
 			NodeL10n.getBase().addL10nSubstitution(optionForm,
 			        "FProxyToadlet.downloadInBackgroundToTempSpace",
 			        new String[] { "page", "bold" }, new HTMLNode[] { DOWNLOADS_LINK, HTMLNode.STRONG });
-			HTMLNode filterControl = optionForm.addChild("div", l10n("filterData"));
-			HTMLNode f = filterControl.addChild("input",
-			        new String[] { "type", "name", "value", "checked" },
-			        new String[] { "checkbox", "filterData", "filterData", "checked"});
-			if(filterChecked) f.addAttribute("checked", "checked");
-			filterControl.addChild("div", l10n("filterDataMessage"));
-
+			if(!dontShowFilter) {
+				HTMLNode filterControl = optionForm.addChild("div", l10n("filterData"));
+				HTMLNode f = filterControl.addChild("input",
+						new String[] { "type", "name", "value" },
+						new String[] { "checkbox", "filterData", "filterData"});
+				if(filterChecked) f.addAttribute("checked", "checked");
+				filterControl.addChild("div", l10n("filterDataMessage"));
+			}
 		}
 	}
 
@@ -586,6 +587,8 @@ public final class FProxyToadlet extends Toadlet implements RequestClient {
 		}
 
 		FetchContext fctx = getFetchContext(maxSize);
+		// max-size=-1 => use default
+		maxSize = fctx.maxOutputLength;
 
 		//We should run the ContentFilter by default
 		String forceString = httprequest.getParam("force");
@@ -823,6 +826,8 @@ public final class FProxyToadlet extends Toadlet implements RequestClient {
 					option = optionList.addChild("li");
 					HTMLNode optionForm = option.addChild("form", new String[] { "action", "method" }, new String[] {'/' + key.toString(), "get" });
 					optionForm.addChild("input", new String[] { "type", "name", "value" }, new String[] { "hidden", "max-size", String.valueOf(e.expectedSize == -1 ? Long.MAX_VALUE : e.expectedSize*2) });
+					if (requestedMimeType != null)
+						optionForm.addChild("input", new String[] { "type", "name", "value" }, new String[] { "hidden", "type", requestedMimeType });
 					optionForm.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "fetch", l10n("fetchLargeFileAnywayAndDisplayButton") });
 					optionForm.addChild("#", " - " + l10n("fetchLargeFileAnywayAndDisplay"));
 					addDownloadOptions(ctx, optionList, key, mime, false, false, core);
