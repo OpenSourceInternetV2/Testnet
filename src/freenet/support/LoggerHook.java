@@ -145,7 +145,6 @@ public abstract class LoggerHook extends Logger {
 		stuff.toArray(newThresholds);
 		synchronized(this) {
 			detailedThresholds = newThresholds;
-			notifyLogThresholdCallbacks();
 		}
 		if(this == overrideThresholds)
 			logger.notifyLogThresholdCallbacks();
