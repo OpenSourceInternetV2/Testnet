@@ -14,6 +14,7 @@ import freenet.client.FetchException;
 import freenet.client.FetchResult;
 import freenet.client.InsertContext;
 import freenet.client.async.BinaryBlob;
+import freenet.client.async.BinaryBlobWriter;
 import freenet.client.async.ClientContext;
 import freenet.client.async.ClientGetCallback;
 import freenet.client.async.ClientGetter;
@@ -211,7 +212,7 @@ public class ClientGet extends ClientRequest implements ClientGetCallback, Clien
 			getter = new ClientGetter(this,
 					uri, fctx, priorityClass,
 					lowLevelClient,
-					binaryBlob ? new NullBucket() : returnBucket, binaryBlob ? returnBucket : null);
+					binaryBlob ? new NullBucket() : returnBucket, binaryBlob ? new BinaryBlobWriter(returnBucket) : null);
 	}
 
 	/**
@@ -281,6 +282,7 @@ public class ClientGet extends ClientRequest implements ClientGetCallback, Clien
 		// Otherwise ignore
 	}
 
+	@Override
 	public void onSuccess(FetchResult result, ClientGetter state, ObjectContainer container) {
 		Logger.minor(this, "Succeeded: "+identifier);
 		Bucket data = result.asBucket();
@@ -505,7 +507,7 @@ public class ClientGet extends ClientRequest implements ClientGetCallback, Clien
 			if(client != null) {
 				RequestStatusCache cache = client.getRequestStatusCache();
 				if(cache != null) {
-					cache.updateStatus(identifier, ((SimpleProgressMessage)progressPending).getEvent());
+					cache.updateStatus(identifier, (progressPending).getEvent());
 				}
 			}
 		} else if(msg instanceof SendingToNetworkMessage) {
@@ -644,6 +646,7 @@ public class ClientGet extends ClientRequest implements ClientGetCallback, Clien
 		return new PersistentGet(identifier, uri, verbosity, priorityClass, returnType, persistenceType, targetFile, tempFile, clientToken, client.isGlobalQueue, started, fctx.maxNonSplitfileRetries, binaryBlob, fctx.maxOutputLength);
 	}
 
+	@Override
 	public void onFailure(FetchException e, ClientGetter state, ObjectContainer container) {
 		if(finished) return;
 		synchronized(this) {
@@ -732,6 +735,7 @@ public class ClientGet extends ClientRequest implements ClientGetCallback, Clien
 		super.requestWasRemoved(container, context);
 	}
 
+	@Override
 	public void receive(ClientEvent ce, ObjectContainer container, ClientContext context) {
 		// Don't need to lock, verbosity is final and finished is never unset.
 		if(finished) return;
@@ -786,6 +790,7 @@ public class ClientGet extends ClientRequest implements ClientGetCallback, Clien
 			try {
 				context.jobRunner.queue(new DBJob() {
 
+					@Override
 					public boolean run(ObjectContainer container, ClientContext context) {
 						trySendProgress(progress, verbosityMask, null, container);
 						return false;
@@ -1120,6 +1125,7 @@ public class ClientGet extends ClientRequest implements ClientGetCallback, Clien
 		return getFailedMessage != null && getFailedMessage.redirectURI != null;
 	}
 
+	@Override
 	public void onRemoveEventProducer(ObjectContainer container) {
 		// Do nothing, we called the removeFrom().
 	}

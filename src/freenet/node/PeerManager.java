@@ -103,6 +103,7 @@ public class PeerManager {
 	private static final int MIN_WRITEPEERS_DELAY = 5*1000; // 5sec
 	private final Runnable writePeersRunnable = new Runnable() {
 
+		@Override
 		public void run() {
 			try {
 				if(shouldWritePeers) {
@@ -569,18 +570,22 @@ public class PeerManager {
 
 					boolean done = false;
 
+					@Override
 					public void acknowledged() {
 						done();
 					}
 
+					@Override
 					public void disconnected() {
 						done();
 					}
 
+					@Override
 					public void fatalError() {
 						done();
 					}
 
+					@Override
 					public void sent() {
 						if(!waitForAck)
 							done();
@@ -608,6 +613,7 @@ public class PeerManager {
                         if(!pn.isSeed()) {
                             node.getTicker().queueTimedJob(new Runnable() {
 
+                                @Override
                                 public void run() {
                                     if(pn.isDisconnecting()) {
                                     	if(remove) {
@@ -631,14 +637,17 @@ public class PeerManager {
 	}
 	final ByteCounter ctrDisconn = new ByteCounter() {
 
+		@Override
 		public void receivedBytes(int x) {
 			node.nodeStats.disconnBytesReceived(x);
 		}
 
+		@Override
 		public void sentBytes(int x) {
 			node.nodeStats.disconnBytesSent(x);
 		}
 
+		@Override
 		public void sentPayload(int x) {
 			// Ignore
 		}
@@ -653,6 +662,7 @@ public class PeerManager {
 			uid = pn.swapIdentifier;
 		}
 
+		@Override
 		public int compareTo(LocationUIDPair p) {
 			// Compare purely on location, so result is the same as getPeerLocationDoubles()
 			if(p.location > location)

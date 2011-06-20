@@ -9,6 +9,7 @@ import com.db4o.ObjectContainer;
 import freenet.client.FetchContext;
 import freenet.client.FetchException;
 import freenet.client.FetchResult;
+import freenet.client.async.BinaryBlobWriter;
 import freenet.client.async.ClientGetCallback;
 import freenet.client.async.ClientGetter;
 import freenet.client.async.DatabaseDisabledException;
@@ -131,7 +132,7 @@ public class RevocationChecker implements ClientGetCallback, RequestClient {
 					cg = revocationGetter = new ClientGetter(this, 
 							manager.revocationURI, ctxRevocation, 
 							aggressive ? RequestStarter.MAXIMUM_PRIORITY_CLASS : RequestStarter.IMMEDIATE_SPLITFILE_PRIORITY_CLASS, 
-							this, null, new ArrayBucket());
+							this, null, new BinaryBlobWriter(new ArrayBucket()));
 					if(logMINOR) Logger.minor(this, "Queued another revocation fetcher (count="+revocationDNFCounter+")");
 				}
 			}
@@ -176,6 +177,7 @@ public class RevocationChecker implements ClientGetCallback, RequestClient {
 		start(wasAggressive);
 	}
 
+	@Override
 	public void onSuccess(FetchResult result, ClientGetter state, ObjectContainer container) {
 		onSuccess(result, state, state.getBlobBucket());
 	}
@@ -248,6 +250,7 @@ public class RevocationChecker implements ClientGetCallback, RequestClient {
 		}
 	}
 
+	@Override
 	public void onFailure(FetchException e, ClientGetter state, ObjectContainer container) {
 		onFailure(e, state, state.getBlobBucket());
 	}
@@ -300,6 +303,7 @@ public class RevocationChecker implements ClientGetCallback, RequestClient {
 				// This ensures we don't constantly start them, fail them, and start them again.
 				this.manager.node.ticker.queueTimedJob(new Runnable() {
 
+					@Override
 					public void run() {
 						start(wasAggressive, false);
 					}
@@ -311,6 +315,7 @@ public class RevocationChecker implements ClientGetCallback, RequestClient {
 		}
 	}
 	
+	@Override
 	public void onMajorProgress(ObjectContainer container) {
 		// TODO Auto-generated method stub
 		
@@ -361,14 +366,17 @@ public class RevocationChecker implements ClientGetCallback, RequestClient {
 		return null;
 	}
 
+	@Override
 	public boolean persistent() {
 		return false;
 	}
 
+	@Override
 	public void removeFrom(ObjectContainer container) {
 		throw new UnsupportedOperationException();
 	}
 
+	@Override
 	public boolean realTimeFlag() {
 		return false;
 	}

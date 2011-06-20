@@ -15,7 +15,6 @@ import freenet.io.comm.DisconnectedException;
 import freenet.io.comm.Message;
 import freenet.io.comm.MessageFilter;
 import freenet.io.comm.NotConnectedException;
-import freenet.io.comm.NullAsyncMessageFilterCallback;
 import freenet.io.comm.PeerContext;
 import freenet.io.comm.PeerParseException;
 import freenet.io.comm.ReferenceSignatureVerificationException;
@@ -36,10 +35,8 @@ import freenet.node.FailureTable.BlockOffer;
 import freenet.node.FailureTable.OfferList;
 import freenet.node.OpennetManager.ConnectionType;
 import freenet.node.OpennetManager.WaitedTooLongForOpennetNoderefException;
-import freenet.node.PeerNode.OutputLoadTracker;
 import freenet.node.PeerNode.RequestLikelyAcceptedState;
 import freenet.node.PeerNode.SlotWaiter;
-import freenet.store.BlockMetadata;
 import freenet.store.KeyCollisionException;
 import freenet.support.LogThresholdCallback;
 import freenet.support.Logger;
@@ -222,9 +219,11 @@ public final class RequestSender implements PrioRunnable, ByteCounter {
     	node.executor.execute(this, "RequestSender for UID "+uid+" on "+node.getDarknetPortNumber());
     }
     
+    @Override
     public void run() {
     	node.getTicker().queueTimedJob(new Runnable() {
     		
+    		@Override
     		public void run() {
     			// Because we can reroute, and we apply the same timeout for each peer,
     			// it is possible for us to exceed the timeout. In which case the downstream
@@ -652,8 +651,11 @@ loadWaiterLoop:
         	while(true) {
         		if(logMINOR) Logger.minor(this, "Going around loop");
             
-        		expectedAcceptState = 
-        			next.outputLoadTracker(realTimeFlag).tryRouteTo(origTag, RequestLikelyAcceptedState.LIKELY, false);
+        		if(next != null)
+        			expectedAcceptState = 
+        				next.outputLoadTracker(realTimeFlag).tryRouteTo(origTag, RequestLikelyAcceptedState.LIKELY, false);
+        		else
+        			expectedAcceptState = null;
         		
         		if(expectedAcceptState == RequestLikelyAcceptedState.UNKNOWN) {
         			// No stats, old style, just go for it.
@@ -746,7 +748,7 @@ loadWaiterLoop:
         			if(expectedAcceptState == null) {
         				PeerNode oldNext = next;
         				long maxWait = Long.MAX_VALUE;
-        				if(waiter.waitingForCount() <= canWaitFor) {
+        				if(waiter.waitingForCount() <= canWaitFor && next != null) {
         					// Can add another one if it's taking ages.
         					// However after adding it once, we will wait for as long as it takes.
         					maxWait = fetchTimeout / 10;
@@ -765,7 +767,7 @@ loadWaiterLoop:
         					next = node.peers.closerPeer(source, exclude, target, true, node.isAdvancedModeEnabled(), -1, null,
         							key, htl, 0, source == null, realTimeFlag, true);
         					
-        					if(next == null && maxWait == Long.MAX_VALUE) {
+        					if(next == null && (maxWait == Long.MAX_VALUE || waiter.waitingForCount() == 0)) {
         						if (logMINOR && rejectOverloads>0)
         							Logger.minor(this, "no more peers, but overloads ("+rejectOverloads+"/"+routeAttempts+" overloaded)");
         						// Backtrack
@@ -929,6 +931,7 @@ loadWaiterLoop:
 			deadline = System.currentTimeMillis() + fetchTimeout;
 		}
 
+		@Override
 		public void onMatched(Message msg) {
 			
 			assert(waitingFor == msg.getSource());
@@ -963,11 +966,13 @@ loadWaiterLoop:
         	}
 		}
 
+		@Override
 		public boolean shouldTimeout() {
 			if(noReroute) return false;
 			return false;
 		}
 
+		@Override
 		public void onTimeout() {
 			// This is probably a downstream timeout.
 			// It's not a serious problem until we have a second (fatal) timeout.
@@ -1017,6 +1022,7 @@ loadWaiterLoop:
 			}
 		}
 
+		@Override
 		public void onDisconnect(PeerContext ctx) {
 			Logger.normal(this, "Disconnected from "+waitingFor+" while waiting for data on "+uid);
 			waitingFor.noLongerRoutingTo(origTag, false);
@@ -1025,14 +1031,17 @@ loadWaiterLoop:
 			routeRequests();
 		}
 
+		@Override
 		public void onRestarted(PeerContext ctx) {
 			onDisconnect(ctx);
 		}
 
+		@Override
 		public int getPriority() {
 			return NativeThread.NORM_PRIORITY;
 		}
 		
+		@Override
 		public String toString() {
 			return super.toString()+":"+waitingFor+":"+noReroute+":"+RequestSender.this;
 		}
@@ -1114,6 +1123,7 @@ loadWaiterLoop:
 		try {
 			node.usm.addAsyncFilter(getOfferedKeyReplyFilter(pn, getOfferedTimeout), new SlowAsyncMessageFilterCallback() {
 				
+				@Override
 				public void onMatched(Message m) {
 					OFFER_STATUS status =
 						isSSK ? handleSSKOfferReply(m, pn, offer) :
@@ -1121,10 +1131,12 @@ loadWaiterLoop:
 					tryOffers(offers, pn, status);
 				}
 				
+				@Override
 				public boolean shouldTimeout() {
 					return false;
 				}
 				
+				@Override
 				public void onTimeout() {
 					Logger.warning(this, "Timeout awaiting reply to offer request on "+this+" to "+pn);
 					// Two stage timeout.
@@ -1132,18 +1144,21 @@ loadWaiterLoop:
 					tryOffers(offers, pn, status);
 				}
 				
+				@Override
 				public void onDisconnect(PeerContext ctx) {
 					if(logMINOR)
 						Logger.minor(this, "Disconnected: "+pn+" getting offer for "+key);
 					tryOffers(offers, pn, OFFER_STATUS.TRY_ANOTHER);
 				}
 				
+				@Override
 				public void onRestarted(PeerContext ctx) {
 					if(logMINOR)
 						Logger.minor(this, "Disconnected: "+pn+" getting offer for "+key);
 					tryOffers(offers, pn, OFFER_STATUS.TRY_ANOTHER);
 				}
 				
+				@Override
 				public int getPriority() {
 					return NativeThread.HIGH_PRIORITY;
 				}
@@ -1174,6 +1189,7 @@ loadWaiterLoop:
 		try {
 			node.usm.addAsyncFilter(getOfferedKeyReplyFilter(pn, GET_OFFER_LONG_TIMEOUT), new SlowAsyncMessageFilterCallback() {
 				
+				@Override
 				public void onMatched(Message m) {
 					OFFER_STATUS status = 
 						isSSK ? handleSSKOfferReply(m, pn, offer) :
@@ -1184,25 +1200,30 @@ loadWaiterLoop:
 						if(logMINOR) Logger.minor(this, "Forked get offered key due to two stage timeout completed with status "+status+" from message "+m+" for "+RequestSender.this+" to "+pn);
 				}
 				
+				@Override
 				public boolean shouldTimeout() {
 					return false;
 				}
 				
+				@Override
 				public void onTimeout() {
 					Logger.error(this, "Fatal timeout getting offered key from "+pn+" for "+RequestSender.this);
 					pn.fatalTimeout(origTag, true);
 				}
 				
+				@Override
 				public void onDisconnect(PeerContext ctx) {
 					// Ok.
 					pn.noLongerRoutingTo(origTag, true);
 				}
 				
+				@Override
 				public void onRestarted(PeerContext ctx) {
 					// Ok.
 					pn.noLongerRoutingTo(origTag, true);
 				}
 				
+				@Override
 				public int getPriority() {
 					return NativeThread.HIGH_PRIORITY;
 				}
@@ -1327,11 +1348,12 @@ loadWaiterLoop:
 				
         		BlockReceiver br = new BlockReceiver(node.usm, pn, uid, prb, this, node.getTicker(), true, realTimeFlag, myTimeoutHandler);
         		
-       			if(logMINOR) Logger.minor(this, "Receiving data");
+       			if(logMINOR) Logger.minor(this, "Receiving data (for offer reply)");
        			final PeerNode p = pn;
        			receivingAsync = true;
        			br.receive(new BlockReceiverCompletion() {
        				
+					@Override
 					public void blockReceived(byte[] data) {
         				synchronized(RequestSender.this) {
         					transferringFrom = null;
@@ -1340,7 +1362,7 @@ loadWaiterLoop:
                 		try {
 	                		// Received data
 	               			p.transferSuccess(realTimeFlag);
-	                		if(logMINOR) Logger.minor(this, "Received data");
+	                		if(logMINOR) Logger.minor(this, "Received data from offer reply");
                 			verifyAndCommit(finalHeaders, data);
 	                		finish(SUCCESS, p, true);
 	                		node.nodeStats.successfulBlockReceive(realTimeFlag, source == null);
@@ -1361,6 +1383,7 @@ loadWaiterLoop:
                 		}
 					}
 
+					@Override
 					public void blockReceiveFailed(
 							RetrievalException e) {
         				synchronized(RequestSender.this) {
@@ -1424,7 +1447,7 @@ loadWaiterLoop:
     		}
     		
     		if(msg == null) {
-    			if(logMINOR) Logger.minor(this, "Timeout waiting for Accepted");
+    			if(logMINOR) Logger.minor(this, "Timeout waiting for Accepted for "+this);
     			// Timeout waiting for Accepted
     			next.localRejectedOverload("AcceptedTimeout", realTimeFlag);
     			forwardRejectedOverload();
@@ -1511,6 +1534,7 @@ loadWaiterLoop:
 		try {
 			node.usm.addAsyncFilter(mf, new SlowAsyncMessageFilterCallback() {
 
+				@Override
 				public void onMatched(Message m) {
 					if(m.getSpec() == DMT.FNPRejectedLoop ||
 							m.getSpec() == DMT.FNPRejectedOverload) {
@@ -1523,23 +1547,28 @@ loadWaiterLoop:
 					}
 				}
 				
+				@Override
 				public boolean shouldTimeout() {
 					return false;
 				}
 
+				@Override
 				public void onTimeout() {
 					Logger.error(this, "Fatal timeout waiting for Accepted/Rejected from "+next+" on "+RequestSender.this);
 					next.fatalTimeout(origTag, false);
 				}
 
+				@Override
 				public void onDisconnect(PeerContext ctx) {
 					next.noLongerRoutingTo(origTag, false);
 				}
 
+				@Override
 				public void onRestarted(PeerContext ctx) {
 					next.noLongerRoutingTo(origTag, false);
 				}
 
+				@Override
 				public int getPriority() {
 					return NativeThread.NORM_PRIORITY;
 				}
@@ -1733,10 +1762,12 @@ loadWaiterLoop:
     		prb.abort(RetrievalException.CANCELLED_BY_RECEIVER, "Cancelling fork", true);
     		br.receive(new BlockReceiverCompletion() {
 
+				@Override
 				public void blockReceived(byte[] buf) {
 					next.noLongerRoutingTo(origTag, false);
 				}
 
+				@Override
 				public void blockReceiveFailed(RetrievalException e) {
 					next.noLongerRoutingTo(origTag, false);
 				}
@@ -1750,10 +1781,13 @@ loadWaiterLoop:
     		synchronized(this) {
     			transferringFrom = next;
     		}
-    	}
-			receivingAsync = true;
+    	} else
+        	if(logMINOR) Logger.minor(this, "Receiving data from fork");
+    	
+    	receivingAsync = true;
     	br.receive(new BlockReceiverCompletion() {
     		
+    		@Override
     		public void blockReceived(byte[] data) {
     			try {
     				long tEnd = System.currentTimeMillis();
@@ -1775,6 +1809,7 @@ loadWaiterLoop:
     				// Received data
     				try {
     					verifyAndCommit(waiter.headers, data);
+    					if(logMINOR) Logger.minor(this, "Written to store");
     				} catch (KeyVerifyException e1) {
     					Logger.normal(this, "Got data but verify failed: "+e1, e1);
     					node.failureTable.onFinalFailure(key, next, htl, origHTL, FailureTable.RECENTLY_FAILED_TIME, FailureTable.REJECT_TIME, source);
@@ -1797,6 +1832,7 @@ loadWaiterLoop:
     			}
     		}
     		
+    		@Override
     		public void blockReceiveFailed(
     				RetrievalException e) {
     			try {
@@ -2407,6 +2443,7 @@ loadWaiterLoop:
 	private volatile Object totalBytesSync = new Object();
 	private int totalBytesSent;
 	
+	@Override
 	public void sentBytes(int x) {
 		synchronized(totalBytesSync) {
 			totalBytesSent += x;
@@ -2423,6 +2460,7 @@ loadWaiterLoop:
 	
 	private int totalBytesReceived;
 	
+	@Override
 	public void receivedBytes(int x) {
 		synchronized(totalBytesSync) {
 			totalBytesReceived += x;
@@ -2440,6 +2478,7 @@ loadWaiterLoop:
 		return hasForwarded;
 	}
 
+	@Override
 	public void sentPayload(int x) {
 		node.sentPayload(x);
 		node.nodeStats.requestSentBytes(isSSK, -x);
@@ -2586,6 +2625,7 @@ loadWaiterLoop:
 		}
 	}
 	
+	@Override
 	public int getPriority() {
 		return NativeThread.HIGH_PRIORITY;
 	}
@@ -2608,6 +2648,7 @@ loadWaiterLoop:
 		 * soon as we return, and that will cause the source node to consider the request
 		 * finished. Meantime we don't know whether the upstream node has finished or not.
 		 * So we reassign the request to ourself, and then wait for the second timeout. */
+		@Override
 		public void onFirstTimeout() {
 			node.reassignTagToSelf(origTag);
 		}
@@ -2615,6 +2656,7 @@ loadWaiterLoop:
 		/** The timeout appears to have been caused by the node we are directly connected
 		 * to. So we need to disconnect the node, or take other fairly strong sanctions,
 		 * to avoid load management problems. */
+		@Override
 		public void onFatalTimeout(PeerContext receivingFrom) {
 			Logger.error(this, "Fatal timeout receiving requested block on "+this+" from "+receivingFrom);
 			((PeerNode)receivingFrom).fatalTimeout();

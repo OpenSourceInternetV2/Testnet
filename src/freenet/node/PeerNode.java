@@ -19,7 +19,6 @@ import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.Hashtable;
 import java.util.Iterator;
-import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Random;
@@ -867,6 +866,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	* However, if ignoreSourcePort is set, we will search for a similar address with a different port
 	* number in the node reference.
 	*/
+	@Override
 	public synchronized Peer getPeer() {
 		return detectedPeer;
 	}
@@ -1093,6 +1093,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	* Note possible deadlocks! PeerManager calls this, we call
 	* PeerManager in e.g. verified.
 	*/
+	@Override
 	public boolean isRoutable() {
 		return isConnected() && isRoutingCompatible() &&
 			!(currentLocation < 0.0 || currentLocation > 1.0);
@@ -1124,6 +1125,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		}
 	}
 
+	@Override
 	public boolean isConnected() {
 		long now = System.currentTimeMillis(); // no System.currentTimeMillis in synchronized
 		synchronized(this) {
@@ -1141,6 +1143,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	* @param cb The callback to be called when the packet has been sent, or null.
 	* @param ctr A callback to tell how many bytes were used to send this message.
 	*/
+	@Override
 	public MessageItem sendAsync(Message msg, AsyncMessageCallback cb, ByteCounter ctr) throws NotConnectedException {
 		if(ctr == null)
 			Logger.error(this, "Bytes not logged", new Exception("debug"));
@@ -1167,11 +1170,13 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		return item;
 	}
 	
+	@Override
 	public void wakeUpSender() {
 		if(logMINOR) Logger.minor(this, "Waking up PacketSender");
 		node.ps.wakeUp();
 	}
 
+	@Override
 	public boolean unqueueMessage(MessageItem message) {
 		if(logMINOR) Logger.minor(this, "Unqueueing message on "+this+" : "+message);
 		return messageQueue.removeMessage(message);
@@ -1215,6 +1220,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		return timeLastRoutable;
 	}
 
+	@Override
 	public void maybeRekey() {
 		long now = System.currentTimeMillis();
 		boolean shouldDisconnect = false;
@@ -1245,6 +1251,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		}
 	}
 
+	@Override
 	public void startRekeying() {
 		long now = System.currentTimeMillis();
 		synchronized(this) {
@@ -1347,6 +1354,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			setPeerNodeStatus(now);
 		if(!dumpMessageQueue) {
 			node.getTicker().queueTimedJob(new Runnable() {
+				@Override
 				public void run() {
 					if((!PeerNode.this.isConnected()) &&
 							timeLastDisconnect == now) {
@@ -1391,6 +1399,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		return ret;
 	}
 
+	@Override
 	public void forceDisconnect(boolean purge) {
 		Logger.error(this, "Forcing disconnect on " + this, new Exception("debug"));
 		disconnected(purge, true); // always dump trackers, maybe dump messages
@@ -1785,6 +1794,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			}
 		}
 
+		@Override
 		public void acknowledged() {
 			synchronized(this) {
 				if(!done)
@@ -1797,6 +1807,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			}
 		}
 
+		@Override
 		public void disconnected() {
 			synchronized(this) {
 				done = true;
@@ -1805,6 +1816,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			}
 		}
 
+		@Override
 		public void fatalError() {
 			synchronized(this) {
 				done = true;
@@ -1812,6 +1824,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			}
 		}
 
+		@Override
 		public void sent() {
 			// Ignore.
 			// It might have been lost, we wait until it is acked.
@@ -1921,6 +1934,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	* @return The current primary SessionKey, or null if we
 	* don't have one.
 	*/
+	@Override
 	public synchronized SessionKey getCurrentKeyTracker() {
 		return currentTracker;
 	}
@@ -1929,6 +1943,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	* @return The previous primary SessionKey, or null if we
 	* don't have one.
 	*/
+	@Override
 	public synchronized SessionKey getPreviousKeyTracker() {
 		return previousTracker;
 	}
@@ -1938,6 +1953,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	* don't have one. The caller MUST call verified(KT) if a
 	* decrypt succeeds with this KT.
 	*/
+	@Override
 	public synchronized SessionKey getUnverifiedKeyTracker() {
 		return unverifiedTracker;
 	}
@@ -1952,6 +1968,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	* *** Note that this is not synchronized! It is used by logging in code paths that
 	* will deadlock if it is synchronized! ***
 	*/
+	@Override
 	public String shortToString() {
 		return shortToString;
 	}
@@ -1969,6 +1986,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	* can be used in handshaking when the connection hasn't been verified yet.
 	* @param dataPacket If this is a real packet, as opposed to a handshake packet.
 	*/
+	@Override
 	public void receivedPacket(boolean dontLog, boolean dataPacket) {
 		synchronized(this) {
 			if((!isConnected) && (!dontLog)) {
@@ -1993,6 +2011,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		}
 	}
 	
+	@Override
 	public synchronized void receivedAck(long now) {
 		if(timeLastReceivedAck < now)
 			timeLastReceivedAck = now;
@@ -2001,6 +2020,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	/**
 	* Update timeLastSentPacket
 	*/
+	@Override
 	public void sentPacket() {
 		timeLastSentPacket = System.currentTimeMillis();
 	}
@@ -2381,6 +2401,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		}
 	}
 
+	@Override
 	public long getBootID() {
 		return bootID;
 	}
@@ -2419,10 +2440,12 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	// Both at IMMEDIATE_SPLITFILE_PRIORITY_CLASS because we want to compete with FMS, not
 	// wipe it out!
 
+	@Override
 	public short getPollingPriorityNormal() {
 		return RequestStarter.IMMEDIATE_SPLITFILE_PRIORITY_CLASS;
 	}
 
+	@Override
 	public short getPollingPriorityProgress() {
 		return RequestStarter.IMMEDIATE_SPLITFILE_PRIORITY_CLASS;
 	}
@@ -2512,6 +2535,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	* SessionKey for this node. Will promote the unverifiedTracker
 	* if necessary.
 	*/
+	@Override
 	public void verified(SessionKey tracker) {
 		long now = System.currentTimeMillis();
 		SessionKey completelyDeprecatedTracker;
@@ -3427,6 +3451,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	 * A transfer failed.
 	 * Back off this node for a while.
 	 */
+	@Override
 	public void transferFailed(String reason, boolean realTime) {
 		assert reason.indexOf(" ") == -1;
 		pRejected.report(1.0);
@@ -3520,6 +3545,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		return pRejected.currentValue();
 	}
 
+	@Override
 	public double averagePingTime() {
 		return pingAverage.currentValue();
 	}
@@ -3530,10 +3556,12 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	private double RTO = 1000;
 	
 	/** Calculated as per RFC 2988 */
+	@Override
 	public synchronized double averagePingTimeCorrected() {
 		return RTO; 
 	}
 
+	@Override
 	public void reportThrottledPacketSendTime(long timeDiff, boolean realTime) {
 		// FIXME do we need this?
 		if(logMINOR)
@@ -3962,6 +3990,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			om.dropExcessPeers();
 	}
 
+	@Override
 	public void onFound(USK origUSK, long edition, FetchResult result) {
 		if(isConnected() || myARK.suggestedEdition > edition) {
 			result.asBucket().free();
@@ -4055,6 +4084,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		return ((double) hadRoutableConnectionCount) / routableConnectionCheckCount;
 	}
 
+	@Override
 	public int getVersionNumber() {
 		return Version.getArbitraryBuildNumber(getVersion(), -1);
 	}
@@ -4126,10 +4156,12 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		}
 	}
 
+	@Override
 	public OutgoingPacketMangler getOutgoingMangler() {
 		return outgoingMangler;
 	}
 
+	@Override
 	public SocketHandler getSocketHandler() {
 		return outgoingMangler.getSocketHandler();
 	}
@@ -4276,6 +4308,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	private boolean sentTrackPackets;
 	private boolean recvTrackPackets;
 
+	@Override
 	public void reportIncomingPacket(byte[] buf, int offset, int length, long now) {
 		reportIncomingBytes(length);
 		long hash = Fields.longHashCode(buf, offset, length);
@@ -4290,6 +4323,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		}
 	}
 
+	@Override
 	public void reportOutgoingPacket(byte[] buf, int offset, int length, long now) {
 		reportOutgoingBytes(length);
 		long hash = Fields.longHashCode(buf, offset, length);
@@ -4525,6 +4559,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		return -1;
 	}
 
+	@Override
 	public WeakReference<PeerNode> getWeakRef() {
 		return myRef;
 	}
@@ -4680,6 +4715,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			sendAsync(DMT.createFNPNetworkID(assignedNetworkID), null, ctr);
 	}
 
+	@Override
 	public boolean shouldThrottle() {
 		return shouldThrottle(getPeer(), node);
 	}
@@ -4700,6 +4736,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	// FIXME determine the clock granularity.
 	private static int CLOCK_GRANULARITY = 20;
 	
+	@Override
 	public void reportPing(long t) {
 		this.pingAverage.report(t);
 		synchronized(this) {
@@ -4754,6 +4791,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	 */
 	static final int MAX_CONSECUTIVE_RTO_BACKOFFS = 5;
 	
+	@Override
 	public synchronized void backoffOnResend() {
 		if(RTO >= MAX_RTO) {
 			Logger.error(this, "Major packet loss on "+this+" - RTO is already at limit and still losing packets!");
@@ -4774,10 +4812,12 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 
 	public final ByteCounter resendByteCounter = new ByteCounter() {
 
+		@Override
 		public void receivedBytes(int x) {
 			// Ignore
 		}
 
+		@Override
 		public void sentBytes(int x) {
 			synchronized(PeerNode.this) {
 				resendBytesSent += x;
@@ -4785,6 +4825,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			node.nodeStats.resendByteCounter.sentBytes(x);
 		}
 
+		@Override
 		public void sentPayload(int x) {
 			// Ignore
 		}
@@ -4795,6 +4836,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		return resendBytesSent;
 	}
 
+	@Override
 	public MessageItem sendThrottledMessage(Message msg, int packetSize, ByteCounter ctr, int timeout, boolean blockForSend, AsyncMessageCallback callback) throws NotConnectedException, WaitedTooLongException, SyncSendWaitedTooLongException, PeerRestartedException {
 		long deadline = System.currentTimeMillis() + timeout;
 		if(logMINOR) Logger.minor(this, "Sending throttled message with timeout "+timeout+" packet size "+packetSize+" to "+shortToString());
@@ -5016,7 +5058,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			synchronized(this) {
 				lastSentAllocationInput = (int) stats.inputBandwidthPeerLimit;
 				lastSentAllocationOutput = (int) stats.outputBandwidthPeerLimit;
-				lastSentMaxOutputTransfers = (int) stats.maxTransfersOut;
+				lastSentMaxOutputTransfers = stats.maxTransfersOut;
 				if(!noRemember) {
 					if(lastFullStats != null && lastFullStats.equals(stats)) return null;
 					lastFullStats = stats;
@@ -5370,6 +5412,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			return acceptedState;
 		}
 		
+		@Override
 		public String toString() {
 			return super.toString()+":"+counter+":"+requestType+":"+realTime;
 		}
@@ -5764,6 +5807,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	
 	public abstract boolean shallWeRouteAccordingToOurPeersLocation();
 	
+	@Override
 	public PeerMessageQueue getMessageQueue() {
 		return messageQueue;
 	}
@@ -5811,35 +5855,43 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		setPeerNodeStatus(System.currentTimeMillis());
 	}
 	
+	@Override
 	public void handleMessage(Message m) {
 		node.usm.checkFilters(m, crypto.socket);
 	}
 
+	@Override
 	public void sendEncryptedPacket(byte[] data) throws LocalAddressException {
 		crypto.socket.sendPacket(data, getPeer(), allowLocalAddresses());
 	}
 	
+	@Override
 	public int getMaxPacketSize() {
 		return crypto.socket.getMaxPacketSize();
 	}
 	
+	@Override
 	public boolean shouldPadDataPackets() {
 		return crypto.config.paddDataPackets();
 	}
 	
+	@Override
 	public void sentThrottledBytes(int count) {
 		node.outputThrottle.forceGrab(count);
 	}
 	
+	@Override
 	public void onNotificationOnlyPacketSent(int length) {
 		node.nodeStats.reportNotificationOnlyPacketSent(length);
 	}
 	
+	@Override
 	public void resentBytes(int length) {
 		resendByteCounter.sentBytes(length);
 	}
 	
 	// FIXME move this to PacketFormat eventually.
+	@Override
 	public Random paddingGen() {
 		return paddingGen;
 	}
@@ -5864,20 +5916,24 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		return false;
 	}
 	
+	@Override
 	public MessageItem makeLoadStats(boolean realtime, boolean boostPriority, boolean noRemember) {
 		Message msg = loadSender(realtime).makeLoadStats(System.currentTimeMillis(), node.nodeStats.outwardTransfersPerInsert(), noRemember);
 		if(msg == null) return null;
 		return new MessageItem(msg, null, node.nodeStats.allocationNoticesCounter, boostPriority ? DMT.PRIORITY_NOW : (short)-1);
 	}
 
+	@Override
 	public boolean grabSendLoadStatsASAP(boolean realtime) {
 		return loadSender(realtime).grabSendASAP();
 	}
 
+	@Override
 	public void setSendLoadStatsASAP(boolean realtime) {
 		loadSender(realtime).setSendASAP();
 	}
 
+	@Override
 	public boolean isOldFNP() {
 		synchronized(this) {
 			if(packetFormat == null) return false;
@@ -5885,6 +5941,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		}
 	}
 	
+	@Override
 	public DecodingMessageGroup startProcessingDecryptedMessages(int size) {
 		return new MyDecodingMessageGroup(size);
 	}
@@ -5899,6 +5956,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			messagesWantSomething = new ArrayList<Message>(size);
 		}
 
+		@Override
 		public void processDecryptedMessage(byte[] data, int offset,
 				int length, int overhead) {
 			Message m = node.usm.decodeSingleMessage(data, offset, length, PeerNode.this, overhead);
@@ -5917,6 +5975,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			}
 		}
 
+		@Override
 		public void complete() {
 			for(Message msg : messages) {
 				handleMessage(msg);

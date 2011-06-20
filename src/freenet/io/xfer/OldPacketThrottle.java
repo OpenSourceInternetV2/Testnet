@@ -22,7 +22,6 @@ import freenet.io.comm.AsyncMessageCallback;
 import freenet.io.comm.ByteCounter;
 import freenet.io.comm.Message;
 import freenet.io.comm.NotConnectedException;
-import freenet.io.comm.Peer;
 import freenet.io.comm.PeerContext;
 import freenet.io.comm.PeerRestartedException;
 import freenet.node.MessageItem;
@@ -362,6 +361,7 @@ public class OldPacketThrottle {
 			this.realTime = realTime;
 		}
 
+		@Override
 		public void acknowledged() {
 			sent(true); // Make sure it is called at least once.
 			synchronized(OldPacketThrottle.this) {
@@ -377,6 +377,7 @@ public class OldPacketThrottle {
 			if(chainCallback != null) chainCallback.acknowledged();
 		}
 
+		@Override
 		public void disconnected() {
 			synchronized(OldPacketThrottle.this) {
 				if(finished) return;
@@ -388,6 +389,7 @@ public class OldPacketThrottle {
 			if(chainCallback != null) chainCallback.disconnected();
 		}
 
+		@Override
 		public void fatalError() {
 			synchronized(OldPacketThrottle.this) {
 				if(finished) return;
@@ -399,6 +401,7 @@ public class OldPacketThrottle {
 			if(chainCallback != null) chainCallback.fatalError();
 		}
 		
+		@Override
 		public void sent() {
 			sent(false);
 		}

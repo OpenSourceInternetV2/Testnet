@@ -17,6 +17,7 @@ import com.db4o.ObjectContainer;
 import freenet.client.FetchContext;
 import freenet.client.FetchException;
 import freenet.client.FetchResult;
+import freenet.client.async.BinaryBlobWriter;
 import freenet.client.async.ClientContext;
 import freenet.client.async.ClientGetCallback;
 import freenet.client.async.ClientGetter;
@@ -101,6 +102,7 @@ public abstract class NodeUpdater implements ClientGetCallback, USKCallback, Req
 		return this;
 	}
 	
+	@Override
 	public void onFoundEdition(long l, USK key, ObjectContainer container, ClientContext context, boolean wasMetadata, short codec, byte[] data, boolean newKnownGood, boolean newSlotToo) {
 		if(newKnownGood && !newSlotToo) return;
 		logMINOR = Logger.shouldLog(LogLevel.MINOR, this);
@@ -129,6 +131,7 @@ public abstract class NodeUpdater implements ClientGetCallback, USKCallback, Req
 
 	private void finishOnFoundEdition(int found) {
 		ticker.queueTimedJob(new Runnable() {
+			@Override
 			public void run() {
 				maybeUpdate();
 			}
@@ -186,7 +189,7 @@ public abstract class NodeUpdater implements ClientGetCallback, USKCallback, Req
 					uri = uri.sskForUSK();
 					cg = new ClientGetter(this,  
 						uri, ctx, RequestStarter.IMMEDIATE_SPLITFILE_PRIORITY_CLASS,
-						this, null, new FileBucket(tempBlobFile, false, false, false, false, false));
+						this, null, new BinaryBlobWriter(new FileBucket(tempBlobFile, false, false, false, false, false)));
 					toStart = cg;
 				} else {
 					System.err.println("Already fetching "+jarName() + " fetch for " + fetchingVersion + " want "+availableVersion);
@@ -246,6 +249,7 @@ public abstract class NodeUpdater implements ClientGetCallback, USKCallback, Req
 		System.err.println("Written " + jarName() + " to " + fNew);
 	}
 
+	@Override
 	public void onSuccess(FetchResult result, ClientGetter state, ObjectContainer container) {
 		onSuccess(result, state, tempBlobFile, fetchingVersion);
 	}
@@ -270,6 +274,7 @@ public abstract class NodeUpdater implements ClientGetCallback, USKCallback, Req
 				if(result == null || result.asBucket() == null || availableVersion > fetchedVersion)
 					node.ticker.queueTimedJob(new Runnable() {
 
+						@Override
 						public void run() {
 							maybeUpdate();
 						}
@@ -359,6 +364,7 @@ public abstract class NodeUpdater implements ClientGetCallback, USKCallback, Req
 	
 	private static final int MAX_MANIFEST_SIZE = 1024*1024;
 
+	@Override
 	public void onFailure(FetchException e, ClientGetter state, ObjectContainer container) {
 		logMINOR = Logger.shouldLog(LogLevel.MINOR, this);
 		if(!isRunning)
@@ -377,6 +383,7 @@ public abstract class NodeUpdater implements ClientGetCallback, USKCallback, Req
 			Logger.normal(this, "Rescheduling new request");
 			ticker.queueTimedJob(new Runnable() {
 
+				@Override
 				public void run() {
 					maybeUpdate();
 				}
@@ -389,6 +396,7 @@ public abstract class NodeUpdater implements ClientGetCallback, USKCallback, Req
 			} else
 				ticker.queueTimedJob(new Runnable() {
 
+					@Override
 					public void run() {
 						maybeUpdate();
 					}
@@ -421,6 +429,7 @@ public abstract class NodeUpdater implements ClientGetCallback, USKCallback, Req
 		return URI;
 	}
 
+	@Override
 	public void onMajorProgress(ObjectContainer container) {
 		// Ignore
 	}
@@ -465,14 +474,17 @@ public abstract class NodeUpdater implements ClientGetCallback, USKCallback, Req
 		return getBlobFile(getFetchedVersion());
 	}
 
+	@Override
 	public short getPollingPriorityNormal() {
 		return RequestStarter.IMMEDIATE_SPLITFILE_PRIORITY_CLASS;
 	}
 
+	@Override
 	public short getPollingPriorityProgress() {
 		return RequestStarter.INTERACTIVE_PRIORITY_CLASS;
 	}
 
+	@Override
 	public boolean persistent() {
 		return false;
 	}
@@ -512,10 +524,12 @@ public abstract class NodeUpdater implements ClientGetCallback, USKCallback, Req
 		return false;
 	}
 
+	@Override
 	public void removeFrom(ObjectContainer container) {
 		throw new UnsupportedOperationException();
 	}
 	
+	@Override
 	public boolean realTimeFlag() {
 		return false;
 	}

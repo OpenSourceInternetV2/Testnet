@@ -90,13 +90,19 @@ public class WelcomeToadlet extends Toadlet {
                     cell.addChild("#", " ");
                 }
                 cell = row.addChild("td", "style", "border: none");
-                cell.addChild("a", new String[]{"href", "title", "class"}, new String[]{ '/' + item.getKey(), item.getDescription(), "bookmark-title"}, item.getName());
+                cell.addChild("a", new String[]{"href", "title", "class"}, new String[]{ '/' + item.getKey(), item.getDescription(), "bookmark-title"}, item.getVisibleName());
+                String explain = item.getShortDescription();
+                if(explain != null && explain.length() > 0) {
+                	cell.addChild("#", " (");
+                	cell.addChild("#", explain);
+                	cell.addChild("#", ")");
+                }
             }
         }
 
         List<BookmarkCategory> cats = cat.getSubCategories();
         for (int i = 0; i < cats.size(); i++) {
-            list.addChild("li", "class", "cat", cats.get(i).getName());
+            list.addChild("li", "class", "cat", cats.get(i).getVisibleName());
             addCategoryToList(cats.get(i), list.addChild("li").addChild("ul"), noActiveLinks, ctx);
         }
     }
@@ -270,6 +276,7 @@ public class WelcomeToadlet extends Toadlet {
             ctx.sendReplyHeaders(302, "Found", headers, null, 0);
             node.ticker.queueTimedJob(new Runnable() {
 
+				@Override
                         public void run() {
                             node.exit("Shutdown from fproxy");
                         }
@@ -297,6 +304,7 @@ public class WelcomeToadlet extends Toadlet {
             ctx.sendReplyHeaders(302, "Found", headers, null, 0);
             node.ticker.queueTimedJob(new Runnable() {
 
+				@Override
                         public void run() {
                             node.getNodeStarter().restart();
                         }
