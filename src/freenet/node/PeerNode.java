@@ -3039,21 +3039,21 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		if(detectedPeer != null)
 			fs.putSingle("detected.udp", detectedPeer.toStringPrefNumeric());
 		if(lastReceivedPacketTime() > 0)
-			fs.putSingle("timeLastReceivedPacket", Long.toString(timeLastReceivedPacket));
+			fs.put("timeLastReceivedPacket", timeLastReceivedPacket);
 		if(lastReceivedAckTime() > 0)
-			fs.putSingle("timeLastReceivedAck", Long.toString(timeLastReceivedAck));
+			fs.put("timeLastReceivedAck", timeLastReceivedAck);
 		if(timeLastConnected() > 0)
-			fs.putSingle("timeLastConnected", Long.toString(timeLastConnected));
+			fs.put("timeLastConnected", timeLastConnected);
 		if(timeLastRoutable() > 0)
-			fs.putSingle("timeLastRoutable", Long.toString(timeLastRoutable));
+			fs.put("timeLastRoutable", timeLastRoutable);
 		if(getPeerAddedTime() > 0 && shouldExportPeerAddedTime())
-			fs.putSingle("peerAddedTime", Long.toString(peerAddedTime));
+			fs.put("peerAddedTime", peerAddedTime);
 		if(neverConnected)
 			fs.putSingle("neverConnected", "true");
 		if(hadRoutableConnectionCount > 0)
-			fs.putSingle("hadRoutableConnectionCount", Long.toString(hadRoutableConnectionCount));
+			fs.put("hadRoutableConnectionCount", hadRoutableConnectionCount);
 		if(routableConnectionCheckCount > 0)
-			fs.putSingle("routableConnectionCheckCount", Long.toString(routableConnectionCheckCount));
+			fs.put("routableConnectionCheckCount", routableConnectionCheckCount);
 		if(currentPeersLocation != null)
 			fs.put("peersLocation", currentPeersLocation);
 		return fs;
@@ -3069,22 +3069,22 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		SimpleFieldSet fs = new SimpleFieldSet(true);
 		long now = System.currentTimeMillis();
 		synchronized(this) {
-			fs.putSingle("averagePingTime", Double.toString(averagePingTime()));
+			fs.put("averagePingTime", averagePingTime());
 			long idle = now - lastReceivedPacketTime();
 			if(idle > (60 * 1000) && -1 != lastReceivedPacketTime())  // 1 minute
 
-				fs.putSingle("idle", Long.toString(idle));
+				fs.put("idle", idle);
 			if(peerAddedTime > 1)
-				fs.putSingle("peerAddedTime", Long.toString(peerAddedTime));
+				fs.put("peerAddedTime", peerAddedTime);
 			fs.putSingle("lastRoutingBackoffReasonRT", lastRoutingBackoffReasonRT);
 			fs.putSingle("lastRoutingBackoffReasonBulk", lastRoutingBackoffReasonBulk);
-			fs.putSingle("routingBackoffPercent", Double.toString(backedOffPercent.currentValue() * 100));
-			fs.putSingle("routingBackoffRT", Long.toString((Math.max(Math.max(routingBackedOffUntilRT, transferBackedOffUntilRT) - now, 0))));
-			fs.putSingle("routingBackoffBulk", Long.toString((Math.max(Math.max(routingBackedOffUntilBulk, transferBackedOffUntilBulk) - now, 0))));
-			fs.putSingle("routingBackoffLengthRT", Integer.toString(routingBackoffLengthRT));
-			fs.putSingle("routingBackoffLengthBulk", Integer.toString(routingBackoffLengthBulk));
-			fs.putSingle("overloadProbability", Double.toString(getPRejected() * 100));
-			fs.putSingle("percentTimeRoutableConnection", Double.toString(getPercentTimeRoutableConnection() * 100));
+			fs.put("routingBackoffPercent", backedOffPercent.currentValue() * 100);
+			fs.put("routingBackoffRT", Math.max(Math.max(routingBackedOffUntilRT, transferBackedOffUntilRT) - now, 0));
+			fs.put("routingBackoffBulk", Math.max(Math.max(routingBackedOffUntilBulk, transferBackedOffUntilBulk) - now, 0));
+			fs.put("routingBackoffLengthRT", routingBackoffLengthRT);
+			fs.put("routingBackoffLengthBulk", routingBackoffLengthBulk);
+			fs.put("overloadProbability", getPRejected() * 100);
+			fs.put("percentTimeRoutableConnection", getPercentTimeRoutableConnection() * 100);
 		}
 		fs.putSingle("status", getPeerNodeStatusString());
 		return fs;
@@ -3101,8 +3101,8 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			fs.putAppend("physical.udp", nominalPeer.get(i).toString());
 		fs.put("auth.negTypes", negTypes);
 		fs.putSingle("identity", getIdentityString());
-		fs.putSingle("location", Double.toString(currentLocation));
-		fs.putSingle("testnet", Boolean.toString(testnetEnabled));
+		fs.put("location", currentLocation);
+		fs.put("testnet", testnetEnabled);
 		fs.put("testnetID", testnetID);
 		fs.putSingle("version", version);
 		if(peerCryptoGroup != null)
@@ -3111,7 +3111,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			fs.put("dsaPubKey", peerPubKey.asFieldSet());
 		if(myARK != null) {
 			// Decrement it because we keep the number we would like to fetch, not the last one fetched.
-			fs.putSingle("ark.number", Long.toString(myARK.suggestedEdition - 1));
+			fs.put("ark.number", myARK.suggestedEdition - 1);
 			fs.putSingle("ark.pubURI", myARK.getBaseSSK().toString(false, false));
 		}
 		fs.put("opennet", isOpennet());
@@ -5292,17 +5292,28 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		}
 		
 		public PeerNode waitForAny(long maxWait) {
+			// If waitingFor is non-empty after this function returns, we can
+			// be accepted when we shouldn't be accepted. So always ensure that
+			// the state is clean when returning, by clearing waitingFor and
+			// calling unregister().
 			PeerNode[] all;
+			PeerNode ret = null;
 			synchronized(this) {
 				if(shouldGrab()) {
 					if(logMINOR) Logger.minor(this, "Already matched on "+this);
-					return grab();
+					 ret = grab();
 				}
 				all = waitingFor.toArray(new PeerNode[waitingFor.size()]);
 				if(all.length == 0) {
 					if(logMINOR) Logger.minor(this, "None to wait for on "+this);
 					return null;
 				}
+				if(ret != null)
+					waitingFor.clear();
+			}
+			if(ret != null) {
+				unregister(ret, all);
+				return ret;
 			}
 			// Double-check before blocking, prevent race condition.
 			long now = System.currentTimeMillis();
@@ -5342,8 +5353,16 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			}
 			if(maxWait == 0) return null;
 			if(!anyValid) {
+				synchronized(this) {
+					if(shouldGrab()) ret = grab();
+					all = waitingFor.toArray(new PeerNode[waitingFor.size()]);
+					waitingFor.clear();
+					failed = false;
+					acceptedBy = null;
+				}
 				if(logMINOR) Logger.minor(this, "None valid to wait for on "+this);
-				return null;
+				unregister(ret, all);
+				return ret;
 			}
 			synchronized(this) {
 				if(logMINOR) Logger.minor(this, "Waiting for any node to wake up "+this+" : "+Arrays.toString(waitingFor.toArray())+" (for up to "+maxWait+"ms)");
@@ -5386,14 +5405,15 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 						if(logMINOR) Logger.minor(this, "Waited "+(waitEnd - waitStart)+"ms for "+this);
 					}
 					if(logMINOR) Logger.minor(this, "Returning after waiting: accepted by "+acceptedBy+" waiting for "+waitingFor.size()+" failed "+failed+" on "+this);
-					failed = false;
-					PeerNode got = acceptedBy;
+					ret = acceptedBy;
 					acceptedBy = null; // Allow for it to wait again if necessary
-					return got;
+					all = waitingFor.toArray(new PeerNode[waitingFor.size()]);
+					waitingFor.clear();
 				}
+				failed = false;
 			}
-			unregister(null, all);
-			return null;
+			unregister(ret, all);
+			return ret;
 		}
 		
 		private boolean shouldGrab() {
@@ -6079,12 +6099,19 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	 * will accept in requests and inserts. */
 	public int calculateMaxTransfersOut(int timeout, double nonOverheadFraction) {
 		// FIXME switch to new throttle
+		// First get usable bandwidth.
 		double bandwidth = (getOldThrottle().getBandwidth()+1.0);
 		if(shouldThrottle())
 			bandwidth = Math.min(bandwidth, node.getOutputBandwidthLimit() / 2);
 		bandwidth *= nonOverheadFraction;
-		double kilobytesPerSecond = bandwidth / 1024.0;
-		return (int)Math.max(1, Math.min(kilobytesPerSecond * timeout, Integer.MAX_VALUE));
+		// Transfers are divided into packets. Packets are 1KB. There are 1-2
+		// of these for SSKs and 32 of them for CHKs, but that's irrelevant here.
+		// We are only concerned here with the time that a transfer will have to
+		// wait after sending a packet for it to have an opportunity to send 
+		// another one. Or equivalently the delay between starting and sending 
+		// the first packet.
+		double packetsPerSecond = bandwidth / 1024.0;
+		return (int)Math.max(1, Math.min(packetsPerSecond * timeout, Integer.MAX_VALUE));
 	}
 
 	public synchronized boolean hasFullNoderef() {

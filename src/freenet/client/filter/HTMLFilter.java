@@ -638,6 +638,10 @@ public class HTMLFilter implements ContentDataFilter, CharsetExtractor {
 			if(t == null || t.startSlash || t.endSlash) {
 				if(!pc.openElements.isEmpty())
 					return pc.openElements.peek();
+				if (pc.writeAfterTag.length() > 0) {
+					w.write(pc.writeAfterTag.toString());
+					pc.writeAfterTag = new StringBuilder(1024);
+				}
 				return null;
 			} else return t.element;
 		} else {
@@ -2476,14 +2480,18 @@ public class HTMLFilter implements ContentDataFilter, CharsetExtractor {
 				ParsedTag p,
 				HTMLParseContext pc) throws DataFilterException {
 			Map<String, Object> hn = super.sanitizeHash(h, p, pc);
-			// Get the already-sanitized version.
-			String baseHref = getHashString(hn, "href");
+			String baseHref = getHashString(h, "href");
 			if(baseHref != null) {
+				// Decode and encode for the same reason we do in sanitizeHash().
+				baseHref = HTMLDecoder.decode(baseHref);
 				String ref = pc.cb.onBaseHref(baseHref);
-				if(ref != null)
-					hn.put("href", ref);
+				if(ref != null) {
+					hn.put("href", HTMLEncoder.encode(ref));
+					return hn;
+				}
 			}
-			return hn;
+			pc.writeAfterTag.append("<!-- deleted invalid base href -->");
+			return null;
 		}
 
 	}

@@ -174,23 +174,32 @@ public class InsertCompressor implements CompressJob {
 						if(first && generateHashes != 0) {
 							if(logMINOR) Logger.minor(this, "Generating hashes: "+generateHashes);
 							is = hasher = new MultiHashInputStream(is, generateHashes);
-							maxOutputSize = Long.MAX_VALUE; // Want to run it to the end anyway to get hashes. Fortunately the first hasher is always the fastest.
 						}
-						first = false;
 						try {
 							comp.compress(is, os, origSize, maxOutputSize);
 						} catch (RuntimeException e) {
 							// ArithmeticException has been seen in bzip2 codec.
 							Logger.error(this, "Compression failed with codec "+comp+" : "+e, e);
 							// Try the next one
+							// RuntimeException is iffy, so lets not try the hasher.
 							continue;
+						} catch (CompressionOutputSizeException e) {
+							if(hasher != null) {
+								is.skip(Long.MAX_VALUE);
+								hashes = hasher.getResults();
+								first = false;
+							}
+							continue; // try next compressor type
+						}
+						if(hasher != null) {
+							hashes = hasher.getResults();
+							first = false;
 						}
 					} finally {
 						Closer.close(is);
 						Closer.close(os);
 					}
 					long resultSize = result.size();
-					if(hasher != null) hashes = hasher.getResults();
 					// minSize is {SSKBlock,CHKBlock}.MAX_COMPRESSED_DATA_LENGTH
 					if(resultSize <= minSize) {
 						if(logMINOR)
@@ -215,8 +224,6 @@ public class InsertCompressor implements CompressJob {
 						bestCodec = comp;
 						shouldFreeOnFinally = false;
 					}
-				} catch(CompressionOutputSizeException e) {
-					continue;       // try next compressor type
 				} catch (DatabaseDisabledException e) {
 					Logger.error(this, "Database disabled compressing data", new Exception("error"));
 					shouldFreeOnFinally = true;

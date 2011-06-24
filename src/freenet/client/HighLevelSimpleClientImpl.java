@@ -144,7 +144,24 @@ public class HighLevelSimpleClientImpl implements HighLevelSimpleClient, Request
 		if(uri == null) throw new NullPointerException();
 		FetchContext context = getFetchContext();
 		FetchWaiter fw = new FetchWaiter();
-		ClientGetter get = new ClientGetter(fw, uri, context, priorityClass, this, null, null);
+		ClientGetter get = new ClientGetter(fw, uri, context, priorityClass, this, null, null, null);
+		try {
+			core.clientContext.start(get);
+		} catch (DatabaseDisabledException e) {
+			// Impossible
+		}
+		return fw.waitForCompletion();
+	}
+
+	/**
+	 * Fetch a key. Either returns the data, or throws an exception.
+	 */
+	@Override
+	public FetchResult fetchFromMetadata(Bucket initialMetadata) throws FetchException {
+		if(initialMetadata == null) throw new NullPointerException();
+		FetchContext context = getFetchContext();
+		FetchWaiter fw = new FetchWaiter();
+		ClientGetter get = new ClientGetter(fw, FreenetURI.EMPTY_CHK_URI, context, priorityClass, this, null, null, initialMetadata);
 		try {
 			core.clientContext.start(get);
 		} catch (DatabaseDisabledException e) {
@@ -163,7 +180,7 @@ public class HighLevelSimpleClientImpl implements HighLevelSimpleClient, Request
 		if(uri == null) throw new NullPointerException();
 		FetchWaiter fw = new FetchWaiter();
 		FetchContext context = getFetchContext(overrideMaxSize);
-		ClientGetter get = new ClientGetter(fw, uri, context, priorityClass, clientContext, null, null);
+		ClientGetter get = new ClientGetter(fw, uri, context, priorityClass, clientContext, null, null, null);
 		try {
 			core.clientContext.start(get);
 		} catch (DatabaseDisabledException e) {
@@ -185,7 +202,19 @@ public class HighLevelSimpleClientImpl implements HighLevelSimpleClient, Request
 	@Override
 	public ClientGetter fetch(FreenetURI uri, RequestClient clientContext, ClientGetCallback callback, FetchContext fctx, short prio) throws FetchException {
 		if(uri == null) throw new NullPointerException();
-		ClientGetter get = new ClientGetter(callback, uri, fctx, prio, clientContext, null, null);
+		ClientGetter get = new ClientGetter(callback, uri, fctx, prio, clientContext, null, null, null);
+		try {
+			core.clientContext.start(get);
+		} catch (DatabaseDisabledException e) {
+			// Impossible
+		}
+		return get;
+	}
+
+	@Override
+	public ClientGetter fetchFromMetadata(Bucket initialMetadata, RequestClient clientContext, ClientGetCallback callback, FetchContext fctx, short prio) throws FetchException {
+		if(initialMetadata == null) throw new NullPointerException();
+		ClientGetter get = new ClientGetter(callback, FreenetURI.EMPTY_CHK_URI, fctx, prio, clientContext, null, null, initialMetadata);
 		try {
 			core.clientContext.start(get);
 		} catch (DatabaseDisabledException e) {
@@ -219,7 +248,7 @@ public class HighLevelSimpleClientImpl implements HighLevelSimpleClient, Request
 		PutWaiter pw = new PutWaiter();
 		ClientPutter put = new ClientPutter(pw, insert.getData(), insert.desiredURI, insert.clientMetadata,
 				context, priority,
-				getCHKOnly, isMetadata, this, filenameHint, false, core.clientContext, null);
+				getCHKOnly, isMetadata, this, filenameHint, false, core.clientContext, null, -1);
 		try {
 			core.clientContext.start(put, false);
 		} catch (DatabaseDisabledException e) {
@@ -237,7 +266,7 @@ public class HighLevelSimpleClientImpl implements HighLevelSimpleClient, Request
 	public ClientPutter insert(InsertBlock insert, boolean getCHKOnly, String filenameHint, boolean isMetadata, InsertContext ctx, ClientPutCallback cb, short priority) throws InsertException {
 		ClientPutter put = new ClientPutter(cb, insert.getData(), insert.desiredURI, insert.clientMetadata,
 				ctx, priority,
-				getCHKOnly, isMetadata, this, filenameHint, false, core.clientContext, null);
+				getCHKOnly, isMetadata, this, filenameHint, false, core.clientContext, null, -1);
 		try {
 			core.clientContext.start(put, false);
 		} catch (DatabaseDisabledException e) {
@@ -340,7 +369,7 @@ public class HighLevelSimpleClientImpl implements HighLevelSimpleClient, Request
 	public void prefetch(FreenetURI uri, long timeout, long maxSize, Set<String> allowedTypes, short prio) {
 		FetchContext ctx = getFetchContext(maxSize);
 		ctx.allowedMIMETypes = allowedTypes;
-		final ClientGetter get = new ClientGetter(nullCallback, uri, ctx, prio, this, new NullBucket(), null);
+		final ClientGetter get = new ClientGetter(nullCallback, uri, ctx, prio, this, new NullBucket(), null, null);
 		core.getTicker().queueTimedJob(new Runnable() {
 			@Override
 			public void run() {

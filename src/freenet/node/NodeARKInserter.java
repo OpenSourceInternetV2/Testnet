@@ -159,7 +159,7 @@ public class NodeARKInserter implements ClientPutCallback, RequestClient {
 		inserter = new ClientPutter(this, b, uri,
 					null, // Modern ARKs easily fit inside 1KB so should be pure SSKs => no MIME type; this improves fetchability considerably
 					ctx,
-					RequestStarter.INTERACTIVE_PRIORITY_CLASS, false, false, this, null, false, node.clientCore.clientContext, null);
+					RequestStarter.INTERACTIVE_PRIORITY_CLASS, false, false, this, null, false, node.clientCore.clientContext, null, -1);
 		
 		try {
 			
@@ -233,7 +233,7 @@ public class NodeARKInserter implements ClientPutCallback, RequestClient {
 				node.writeNodeFile();
 			// We'll broadcast the new ARK edition to our connected peers via a differential node reference
 			SimpleFieldSet fs = new SimpleFieldSet(true);
-			fs.putSingle("ark.number", Long.toString(crypto.myARKNumber));
+			fs.put("ark.number", crypto.myARKNumber);
 			node.peers.locallyBroadcastDiffNodeRef(fs, !crypto.isOpennet, crypto.isOpennet);
 		}
 	}
@@ -276,6 +276,13 @@ public class NodeARKInserter implements ClientPutCallback, RequestClient {
 	@Override
 	public boolean realTimeFlag() {
 		return false;
+	}
+
+	@Override
+	public void onGeneratedMetadata(Bucket metadata, BaseClientPutter state,
+			ObjectContainer container) {
+		Logger.error(this, "Bogus onGeneratedMetadata() on "+this+" from "+state, new Exception("error"));
+		metadata.free();
 	}
 
 }

@@ -5259,10 +5259,6 @@ public class Node implements TimeSkewDetectorCallback {
 		}
 	}
 
-	public boolean isTestnetEnabled() {
-		return true;
-	}
-
 	public ClientKeyBlock fetchKey(ClientKey key, boolean canReadClientCache, boolean canWriteClientCache, boolean canWriteDatastore) throws KeyVerifyException {
 		if(key instanceof ClientCHK)
 			return fetch((ClientCHK)key, canReadClientCache, canWriteClientCache, canWriteDatastore);
@@ -6344,6 +6340,10 @@ public class Node implements TimeSkewDetectorCallback {
 		if(om != null) {
 			om.crypto.socket.calculateMaxPacketSize();
 		}
+	}
+
+	public static boolean isTestnetEnabled() {
+		return true;
 	}
 
 	public MersenneTwister createRandom() {

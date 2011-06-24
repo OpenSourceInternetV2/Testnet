@@ -1021,7 +1021,43 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 		}
 	}
 	
-	/* return reject reason as string if should reject, otherwise return null */
+	/** Should a request be accepted by this node, based on its local capacity?
+	 * This includes thread limits and ping times, but more importantly, 
+	 * mechanisms based on predicting worst case bandwidth usage for all running
+	 * requests, and fairly sharing that capacity between peers. Currently there
+	 * is no mechanism for fairness between request types, this should be
+	 * implemented on the sender side, and is with new load management. New load
+	 * management has caused various changes here but that's probably sorted out
+	 * now, i.e. changes involved in new load management will probably be mainly
+	 * in PeerNode and RequestSender now.
+	 * @param canAcceptAnyway Periodically we ignore the ping time and accept a
+	 * request anyway. This is because the ping time partly depends on whether
+	 * we have accepted any requests... FIXME this should be reconsidered.
+	 * @param isInsert Whether this is an insert.
+	 * @param isSSK Whether this is a request/insert for an SSK.
+	 * @param isLocal Is this request originated locally? This can affect our
+	 * estimate of likely bandwidth usage. Whether it should be used is unclear,
+	 * since an attacker can observe bandwidth usage. It is configurable.
+	 * @param isOfferReply Is this request actually a GetOfferedKey? This is a
+	 * non-relayed fetch of a block which we recently offered via ULPRs.
+	 * @param source The node that sent us this request. This should be null
+	 * on local requests and non-null on remote requests, but in some parts of
+	 * the code that doesn't always hold. It *should* hold here, but that needs
+	 * more checking before we can remove isLocal.
+	 * @param hasInStore If this is a request, do we have the block in the 
+	 * datastore already? This affects whether we accept it, which gives a 
+	 * significant performance gain. Arguably there is a security issue, 
+	 * although timing attacks are pretty easy anyway, and making requests go
+	 * further may give attackers more samples...
+	 * @param preferInsert If true, prefer inserts to requests (slightly). There
+	 * is a flag for this on inserts. The idea is that when inserts are 
+	 * misrouted this causes long-term problems because the data is stored in 
+	 * the wrong place. New load management should avoid the need for this.
+	 * @param realTimeFlag Is this a realtime request (low latency, low capacity)
+	 * or a bulk request (high latency, high capacity)? They are accounted for 
+	 * separately.
+	 * @return The reason for rejecting it, or null to accept it.
+	 */
 	public RejectReason shouldRejectRequest(boolean canAcceptAnyway, boolean isInsert, boolean isSSK, boolean isLocal, boolean isOfferReply, PeerNode source, boolean hasInStore, boolean preferInsert, boolean realTimeFlag) {
 		if(logMINOR) dumpByteCostAverages();
 
@@ -1069,17 +1105,24 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 
 		}
 
-		// Successful cluster timeout protection.
-		// Reject request if the result of all our current requests completing simultaneously would be that
-		// some of them timeout.
+		// Pre-emptive rejection based on avoiding timeouts, with fair sharing
+		// between peers. We calculate the node's capacity for requests and then
+		// decide whether we will exceed it, or whether a particular peer will
+		// exceed its slice of it. Peers are guaranteed a proportion of the
+		// total ("peer limit"), but can opportunistically use a bit more, 
+		// provided the total is less than the "lower limit". The overall usage
+		// should not go over the "upper limit".
+		
+		// This should normally account for the bulk of request rejections.
 		
 		int transfersPerInsert = outwardTransfersPerInsert();
 		
+		/** Requests running, globally */
 		RunningRequestsSnapshot requestsSnapshot = new RunningRequestsSnapshot(node, ignoreLocalVsRemoteBandwidthLiability, transfersPerInsert, realTimeFlag);
 		
 		if(!isLocal) {
 			// If not local, is already locked.
-			// So we need to decrement the relevant value, to counteract this and restore the SSK:CHK balance.
+			// But if it is local, it's not already locked.
 			requestsSnapshot.decrement(isSSK, isInsert, isOfferReply, transfersPerInsert, hasInStore);
 		}
 
@@ -1095,19 +1138,31 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 			if(logMINOR) Logger.minor(this, "Maybe accepting extra request due to it being in datastore (limit now "+limit+"s)...");
 		}
 		
-		// Multiply by limit: X seconds at full power should be able to clear the transfers even if all the requests succeed.
-		
 		int peers = node.peers.countConnectedPeers();
+		
+		// These limits are by transfers.
+		// We limit the total number of transfers running in parallel to ensure
+		// that they don't get starved: The number of seconds a transfer has to
+		// wait (for all the others) before it can send needs to be reasonable.
+		
+		// Whereas the bandwidth-based limit is by bytes, on the principle that
+		// it must be possible to complete all transfers within a reasonable time.
+		
 		int maxTransfersOutUpperLimit = getMaxTransfersUpperLimit(realTimeFlag, nonOverheadFraction);
 		int maxTransfersOutLowerLimit = (int)Math.max(1,getLowerLimit(maxTransfersOutUpperLimit, peers));
 		int maxTransfersOutPeerLimit = (int)Math.max(1,getPeerLimit(source, maxTransfersOutUpperLimit - maxTransfersOutLowerLimit, false, transfersPerInsert, realTimeFlag, peers));
+		/** Per-peer limit based on current state of the connection. */
 		int maxOutputTransfers = this.calculateMaxTransfersOut(source, realTimeFlag, nonOverheadFraction, maxTransfersOutUpperLimit);
 		
+		/** Requests running for this specific peer (local counts as a peer) */
 		RunningRequestsSnapshot peerRequestsSnapshot = new RunningRequestsSnapshot(node, source, false, ignoreLocalVsRemoteBandwidthLiability, transfersPerInsert, realTimeFlag);
 		
 		if(source != null) {
 			peerRequestsSnapshot.decrement(isSSK, isInsert, isOfferReply, transfersPerInsert, hasInStore);
 		}
+		
+		
+		// Check bandwidth-based limits, with fair sharing.
 		
 		String ret = checkBandwidthLiability(getOutputBandwidthUpperLimit(totalSent, totalOverhead, uptime, limit, nonOverheadFraction), requestsSnapshot, peerRequestsSnapshot, false, limit,
 				source, isLocal, isSSK, isInsert, isOfferReply, hasInStore, transfersPerInsert, realTimeFlag, maxOutputTransfers, maxTransfersOutPeerLimit);  
@@ -1117,11 +1172,16 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 				source, isLocal, isSSK, isInsert, isOfferReply, hasInStore, transfersPerInsert, realTimeFlag, maxOutputTransfers, maxTransfersOutPeerLimit);  
 		if(ret != null) return new RejectReason(ret, true);
 		
+		// Check transfer-based limits, with fair sharing.
+		
 		ret = checkMaxOutputTransfers(maxOutputTransfers, maxTransfersOutUpperLimit, maxTransfersOutLowerLimit, maxTransfersOutPeerLimit,
 				requestsSnapshot, peerRequestsSnapshot, isLocal, realTimeFlag);
 		if(ret != null) return new RejectReason(ret, true);
 		
 		// Do we have the bandwidth?
+		// The throttles should not be used much now, the timeout-based 
+		// preemptive rejection and fair sharing code above should catch it in
+		// all cases. FIXME can we get rid of the throttles here?
 		double expected = this.getThrottle(isLocal, isInsert, isSSK, true).currentValue();
 		int expectedSent = (int)Math.max(expected / nonOverheadFraction, 0);
 		if(logMINOR)
@@ -1142,6 +1202,8 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 			return new RejectReason("Insufficient input bandwidth", false);
 		}
 
+		// Message queues - when the link level has far more queued than it
+		// can transmit in a reasonable time, don't accept requests.
 		if(source != null) {
 			if(source.getMessageQueueLengthBytes() > MAX_PEER_QUEUE_BYTES) {
 				rejected(">MAX_PEER_QUEUE_BYTES", isLocal, realTimeFlag);
@@ -1251,11 +1313,14 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 		return (int)Math.max(1, (getAcceptableBlockTime(realTime) * outputAvailablePerSecond) / 1024.0);
 	}
 
-	/** Should the request be rejected due to bandwidth liability?
+	/** Should the request be rejected due to bandwidth liability? Enforces fair
+	 * sharing between peers, while allowing peers to opportunistically use a bit
+	 * more than their fair share as long as the total is below the lower limit.
+	 * Used for both bandwidth-based limiting and transfer-count-based limiting.
 	 * 
 	 * @param bandwidthAvailableOutputUpperLimit The overall upper limit, already calculated.
 	 * @param requestsSnapshot The requests running.
-	 * @param peerRequestsSnapshot 
+	 * @param peerRequestsSnapshot The requests running to this one peer.
 	 * @param input True if this is input bandwidth, false if it is output bandwidth.
 	 * @param limit The limit period in seconds.
 	 * @param source The source of the request.
@@ -1711,6 +1776,8 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 		}
 		fs.put("averagePingTime", getNodeAveragePingTime());
 		fs.put("bwlimitDelayTime", getBwlimitDelayTime());
+		fs.put("bwlimitDelayTimeRT", getBwlimitDelayTimeRT());
+		fs.put("bwlimitDelayTimeBulk", getBwlimitDelayTimeBulk());
 
 		// Network Size
 		fs.put("opennetSizeEstimateSession", getOpennetSizeEstimate(-1));
@@ -1731,6 +1798,7 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 		fs.put("backedOffPercent", backedOffPercent.currentValue());
 		fs.put("pInstantReject", pRejectIncomingInstantly());
 		fs.put("unclaimedFIFOSize", node.usm.getUnclaimedFIFOSize());
+		fs.put("RAMBucketPoolSize", node.clientCore.tempBucketFactory.getRamUsed());
 
 		/* gather connection statistics */
 		PeerNodeStatus[] peerNodeStatuses = peers.getPeerNodeStatuses(true);
@@ -1777,6 +1845,18 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 		fs.put("numberOfTransferringRequestSenders", node.getNumTransferringRequestSenders());
 		fs.put("numberOfARKFetchers", node.getNumARKFetchers());
 
+		fs.put("numberOfLocalCHKInserts", node.getNumLocalCHKInserts());
+		fs.put("numberOfRemoteCHKInserts", node.getNumRemoteCHKInserts());
+		fs.put("numberOfLocalSSKInserts", node.getNumLocalSSKInserts());
+		fs.put("numberOfRemoteSSKInserts", node.getNumRemoteSSKInserts());
+		fs.put("numberOfLocalCHKRequests", node.getNumLocalCHKRequests());
+		fs.put("numberOfRemoteCHKRequests", node.getNumRemoteCHKRequests());
+		fs.put("numberOfLocalSSKRequests", node.getNumLocalSSKRequests());
+		fs.put("numberOfRemoteSSKRequests", node.getNumRemoteSSKRequests());
+		fs.put("numberOfTransferringRequestHandlers", node.getNumTransferringRequestHandlers());
+		fs.put("numberOfCHKOfferReplys", node.getNumCHKOfferReplies());
+		fs.put("numberOfSSKOfferReplys", node.getNumSSKOfferReplies());
+
 		long[] total = node.collector.getTotalIO();
 		long total_output_rate = (total[0]) / nodeUptimeSeconds;
 		long total_input_rate = (total[1]) / nodeUptimeSeconds;
@@ -1798,6 +1878,12 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 		fs.put("recentOutputRate", recent_output_rate);
 		fs.put("recentInputRate", recent_input_rate);
 
+		fs.put("ackOnlyBytes", getNotificationOnlyPacketsSentBytes());
+		fs.put("resentBytes", getResendBytesSent());
+		fs.put("updaterOutputBytes", getUOMBytesSent());
+		fs.put("announcePayloadBytes", getAnnounceBytesPayloadSent());
+		fs.put("announceSentBytes", getAnnounceBytesSent());
+
 		String [] routingBackoffReasons = peers.getPeerNodeRoutingBackoffReasons(true);
 		if(routingBackoffReasons.length != 0) {
 			for(int i=0;i<routingBackoffReasons.length;i++) {
@@ -1815,12 +1901,12 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 		double swaps = node.getSwaps();
 		double noSwaps = node.getNoSwaps();
 		double numberOfRemotePeerLocationsSeenInSwaps = node.getNumberOfRemotePeerLocationsSeenInSwaps();
-		fs.putSingle("numberOfRemotePeerLocationsSeenInSwaps", Double.toString(numberOfRemotePeerLocationsSeenInSwaps));
+		fs.put("numberOfRemotePeerLocationsSeenInSwaps", numberOfRemotePeerLocationsSeenInSwaps);
 		double avgConnectedPeersPerNode = 0.0;
 		if ((numberOfRemotePeerLocationsSeenInSwaps > 0.0) && ((swaps > 0.0) || (noSwaps > 0.0))) {
 			avgConnectedPeersPerNode = numberOfRemotePeerLocationsSeenInSwaps/(swaps+noSwaps);
 		}
-		fs.putSingle("avgConnectedPeersPerNode", Double.toString(avgConnectedPeersPerNode));
+		fs.put("avgConnectedPeersPerNode", avgConnectedPeersPerNode);
 
 		int startedSwaps = node.getStartedSwaps();
 		int swapsRejectedAlreadyLocked = node.getSwapsRejectedAlreadyLocked();
@@ -1876,10 +1962,14 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 
 		long cachedStoreHits = node.getChkDatacache().hits();
 		long cachedStoreMisses = node.getChkDatacache().misses();
+		long cachedStoreWrites = node.getChkDatacache().writes();
 		long cacheAccesses = cachedStoreHits + cachedStoreMisses;
+		long cachedStoreFalsePositives = node.getChkDatacache().getBloomFalsePositive();
 		double percentCachedStoreHitsOfAccesses = (double)(cachedStoreHits*100) / (double)cacheAccesses;
 		long storeHits = node.getChkDatastore().hits();
 		long storeMisses = node.getChkDatastore().misses();
+		long storeWrites = node.getChkDatastore().writes();
+		long storeFalsePositives = node.getChkDatastore().getBloomFalsePositive();
 		long storeAccesses = storeHits + storeMisses;
 		double percentStoreHitsOfAccesses = (double)(storeHits*100) / (double)storeAccesses;
 		long overallAccesses = storeAccesses + cacheAccesses;
@@ -1896,11 +1986,15 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 		fs.put("percentOverallKeysOfMax", percentOverallKeysOfMax);
 		fs.put("cachedStoreHits", cachedStoreHits);
 		fs.put("cachedStoreMisses", cachedStoreMisses);
+		fs.put("cachedStoreWrites", cachedStoreWrites);
 		fs.put("cacheAccesses", cacheAccesses);
+		fs.put("cachedStoreFalsePositives", cachedStoreFalsePositives);
 		fs.put("percentCachedStoreHitsOfAccesses", percentCachedStoreHitsOfAccesses);
 		fs.put("storeHits", storeHits);
 		fs.put("storeMisses", storeMisses);
 		fs.put("storeAccesses", storeAccesses);
+		fs.put("storeWrites", storeWrites);
+		fs.put("storeFalsePositives", storeFalsePositives);
 		fs.put("percentStoreHitsOfAccesses", percentStoreHitsOfAccesses);
 		fs.put("overallAccesses", overallAccesses);
 		fs.put("avgStoreAccessRate", avgStoreAccessRate);
@@ -1923,12 +2017,19 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 		fs.put("runningThreadCount", getActiveThreadCount());
 
 		fs.put("globalFetchPSuccess", globalFetchPSuccess.currentValue());
+		fs.put("globalFetchCount", globalFetchPSuccess.countReports());
 		fs.put("chkLocalFetchPSuccess", chkLocalFetchPSuccess.currentValue());
+		fs.put("chkLocalFetchCount", chkLocalFetchPSuccess.countReports());
 		fs.put("chkRemoteFetchPSuccess", chkRemoteFetchPSuccess.currentValue());
+		fs.put("chkRemoteFetchCount", chkRemoteFetchPSuccess.countReports());
 		fs.put("sskLocalFetchPSuccess", sskLocalFetchPSuccess.currentValue());
+		fs.put("sskLocalFetchCount", sskLocalFetchPSuccess.countReports());
 		fs.put("sskRemoteFetchPSuccess", sskRemoteFetchPSuccess.currentValue());
-		fs.put("blockTransferPSuccessBulk", blockTransferPSuccessBulk.currentValue());
+		fs.put("sskRemoteFetchCount", sskRemoteFetchPSuccess.countReports());
 		fs.put("blockTransferPSuccessRT", blockTransferPSuccessRT.currentValue());
+		fs.put("blockTransferCountRT", blockTransferPSuccessRT.countReports());
+		fs.put("blockTransferPSuccessBulk", blockTransferPSuccessBulk.currentValue());
+		fs.put("blockTransferCountBulk", blockTransferPSuccessBulk.countReports());
 		fs.put("blockTransferFailTimeout", blockTransferFailTimeout.currentValue());
 
 		return fs;

@@ -14,6 +14,7 @@ import freenet.client.async.DatabaseDisabledException;
 import freenet.client.events.ClientEvent;
 import freenet.client.events.ClientEventListener;
 import freenet.client.events.FinishedCompressionEvent;
+import freenet.client.events.ExpectedHashesEvent;
 import freenet.client.events.SimpleEventProducer;
 import freenet.client.events.SplitfileProgressEvent;
 import freenet.client.events.StartedCompressionEvent;
@@ -22,6 +23,7 @@ import freenet.keys.InsertableClientSSK;
 import freenet.support.LogThresholdCallback;
 import freenet.support.Logger;
 import freenet.support.Logger.LogLevel;
+import freenet.support.api.Bucket;
 import freenet.support.io.NativeThread;
 
 /**
@@ -36,6 +38,7 @@ public abstract class ClientPutBase extends ClientRequest implements ClientPutCa
 
 	// Verbosity bitmasks
 	private static final int VERBOSITY_SPLITFILE_PROGRESS = 1;
+	private static final int VERBOSITY_EXPECTED_HASHES = 8; // same as ClientGet
 	private static final int VERBOSITY_PUT_FETCHABLE = 256;
 	private static final int VERBOSITY_COMPRESSION_START_END = 512;
 
@@ -58,6 +61,9 @@ public abstract class ClientPutBase extends ClientRequest implements ClientPutCa
 	protected final boolean earlyEncode;
 
 	protected final FreenetURI publicURI;
+	
+	/** Metadata returned instead of URI */
+	private Bucket generatedMetadata;
 
 	public final static String SALT = "Salt";
 	public final static String FILE_HASH = "FileHash";
@@ -171,6 +177,7 @@ public abstract class ClientPutBase extends ClientRequest implements ClientPutCa
 			//progressMessage = null;
 			succeeded = true;
 			finished = true;
+			completionTime = System.currentTimeMillis();
 			if(generatedURI == null)
 				Logger.error(this, "No generated URI in onSuccess() for "+this+" from "+state);
 		}
@@ -187,6 +194,7 @@ public abstract class ClientPutBase extends ClientRequest implements ClientPutCa
 		if(finished) return;
 		synchronized(this) {
 			finished = true;
+			completionTime = System.currentTimeMillis();
 			putFailedMessage = new PutFailedMessage(e, identifier, global);
 		}
 		if(persistenceType == PERSIST_FOREVER)
@@ -234,7 +242,33 @@ public abstract class ClientPutBase extends ClientRequest implements ClientPutCa
 		} else
 			return generatedURI;
 	}
-
+	
+	@Override
+	public void onGeneratedMetadata(Bucket metadata, BaseClientPutter state,
+			ObjectContainer container) {
+		boolean delete = false;
+		synchronized(this) {
+			if(generatedURI != null)
+				Logger.error(this, "Got generated metadata but already have URI on "+this+" from "+state);
+			if(generatedMetadata != null) {
+				Logger.error(this, "Already got generated metadata from "+state+" on "+this);
+				delete = true;
+			} else {
+				generatedMetadata = metadata;
+			}
+		}
+		if(delete) {
+			metadata.free();
+			metadata.removeFrom(container);
+		} else {
+			if(persistenceType == PERSIST_FOREVER) {
+				metadata.storeTo(container);
+				container.store(this);
+			}
+			trySendGeneratedMetadataMessage(metadata, null, container);
+		}
+	}
+	
 	@Override
 	public void requestWasRemoved(ObjectContainer container, ClientContext context) {
 		// if request is still running, send a PutFailed with code=cancelled
@@ -254,6 +288,18 @@ public abstract class ClientPutBase extends ClientRequest implements ClientPutCa
 		client.queueClientRequestMessage(msg, 0, container);
 
 		freeData(container);
+		Bucket meta;
+		synchronized(this) {
+			meta = generatedMetadata;
+			generatedMetadata = null;
+		}
+		// FIXME combine the synchronized blocks, null out even if non-persistent.
+		if(meta != null) {
+			meta.free();
+			if(persistenceType == PERSIST_FOREVER) {
+				meta.removeFrom(container);
+			}
+		}
 		if(persistenceType == PERSIST_FOREVER) {
 			container.activate(ctx, 2);
 			ctx.removeFrom(container);
@@ -338,6 +384,13 @@ public abstract class ClientPutBase extends ClientRequest implements ClientPutCa
 				trySendProgressMessage(msg, VERBOSITY_COMPRESSION_START_END, null, container, context);
 				onStopCompressing();
 			}
+		} else if(ce instanceof ExpectedHashesEvent) {
+			if((verbosity & VERBOSITY_EXPECTED_HASHES) == VERBOSITY_EXPECTED_HASHES) {
+				ExpectedHashes msg =
+					new ExpectedHashes((ExpectedHashesEvent)ce, identifier, global);
+				trySendProgressMessage(msg, VERBOSITY_EXPECTED_HASHES, null, container, context);
+				//FIXME: onHashesComputed();
+			}
 		}
 	}
 
@@ -398,6 +451,21 @@ public abstract class ClientPutBase extends ClientRequest implements ClientPutCa
 		synchronized(this) {
 			msg = new URIGeneratedMessage(generatedURI, identifier, isGlobalQueue());
 		}
+		if(persistenceType == PERSIST_CONNECTION && handler == null)
+			handler = origHandler.outputHandler;
+		if(handler != null)
+			handler.queue(msg);
+		else
+			client.queueClientRequestMessage(msg, 0, container);
+	}
+
+	/**
+	 * @param metadata Activated by caller.
+	 * @param handler
+	 * @param container
+	 */
+	private void trySendGeneratedMetadataMessage(Bucket metadata, FCPConnectionOutputHandler handler, ObjectContainer container) {
+		FCPMessage msg = new GeneratedMetadataMessage(identifier, global, metadata);
 		if(persistenceType == PERSIST_CONNECTION && handler == null)
 			handler = origHandler.outputHandler;
 		if(handler != null)
@@ -475,15 +543,19 @@ public abstract class ClientPutBase extends ClientRequest implements ClientPutCa
 		boolean generated = false;
 		FCPMessage msg = null;
 		boolean fin = false;
+		Bucket meta;
 		synchronized (this) {
 			generated = generatedURI != null;
 			msg = progressMessage;
 			fin = finished;
+			meta = generatedMetadata;
 		}
 		if(persistenceType == PERSIST_FOREVER && msg != null)
 			container.activate(msg, 5);
 		if(generated)
 			trySendGeneratedURIMessage(handler, container);
+		if(meta != null)
+			trySendGeneratedMetadataMessage(meta, handler, container);
 		if(msg != null)
 			handler.queue(msg);
 		if(fin)
