@@ -1088,7 +1088,7 @@ public class PluginManager {
 		addOfficialPlugin("Spider", false, 49, false, new FreenetURI("CHK@7a33HqOQZqqyxBwGhtx-JEPzEMTOaPql4sB-EIuMhjk,2ecFy5ttpAC2sDx5yvS19MDEdowMQpzagpdOg2I~Mh8,AAIC--8/Spider.jar"), false, false, true);
 		addOfficialPlugin("Freetalk", false, 9, true, new FreenetURI("CHK@nt0tIS~bTVyjN~0klCpbTzUvDPUw~8IQkJ1JYJ6XuMs,9h3gq87rax0BxMa4752xLG6wMbspKv1zRA~E4o24pLk,AAIC--8/Freetalk.jar"), false, false, false);
 		// WoT: Testnet fork, alternative seed identities.
-		addOfficialPlugin("WebOfTrust", false, 7, true, new FreenetURI("CHK@OHjT1TZNK3lUgAlAj-71ypw7BM-UAE6ydSk5R8v-joQ,p-PnXmHP9Y2UbT5jxVgUi54GYGXOevH~-kjJm2nqDM4,AAIC--8/WebOfTrust-7-testnet.jar"), false, false, false);
+		addOfficialPlugin("WebOfTrust", false, 8, true, new FreenetURI("CHK@HvEe268NS8T0YC6s-mTa8bLM04b872OCcA1CeL~e6~I,C9zIyql6sfnNkOqANVQYCnVJ6M7KNYZCdyUCTfAaujY,AAIC--8/WebOfTrust-testnet.jar"), false, false, false);
 		addOfficialPlugin("FlogHelper", false, 24, true, new FreenetURI("CHK@WWa59P8NbCnVwT7jEbdyUpjX4Z50fJvpVdc6AxohaJc,imlpwbm9Q5y86rvmycwXCUkmpBNgMEgDZ~HJYY9UTi4,AAIC--8/FlogHelper.jar"), false, false, false);
 		} catch (MalformedURLException e) {
 			throw new Error("Malformed hardcoded URL: "+e, e);
