@@ -94,7 +94,7 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 	private volatile long maxPingTime;
     private final double nodeLoc=0.0;
 
-	private final Node node;
+	final Node node;
 	private MemoryChecker myMemoryChecker;
 	public final PeerManager peers;
 
@@ -3517,6 +3517,27 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 	/** If a peer is over this threshold it is considered to be backed off. */
 	public synchronized long maxPeerPingTime() {
 		return 2 * maxPingTime;
+	}
+	
+	private RunningAverage nlmDelayRTLocal = new TrivialRunningAverage();
+	private RunningAverage nlmDelayRTRemote = new TrivialRunningAverage();
+	private RunningAverage nlmDelayBulkLocal = new TrivialRunningAverage();
+	private RunningAverage nlmDelayBulkRemote = new TrivialRunningAverage();
+
+	public void reportNLMDelay(long waitTime, boolean realTime, boolean local) {
+		if(realTime) {
+			if(local)
+				nlmDelayRTLocal.report(waitTime);
+			else
+				nlmDelayRTRemote.report(waitTime);
+		} else {
+			if(local)
+				nlmDelayBulkLocal.report(waitTime);
+			else
+				nlmDelayBulkRemote.report(waitTime);
+		}
+		if(logMINOR) Logger.minor(this, "Delay times: realtime: local="+nlmDelayRTLocal.currentValue()+" remote = "+nlmDelayRTRemote.currentValue()+
+				" bulk: local="+nlmDelayBulkLocal.currentValue()+" remote="+nlmDelayBulkRemote.currentValue());
 	}
 	
 }

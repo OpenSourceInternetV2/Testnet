@@ -420,15 +420,22 @@ public class RequestStarterGroup {
 		}
 	}
 
-	public void setUseAIMDs(boolean val) {
-		chkFetchSchedulerBulk.setUseAIMDs(val);
-		sskFetchSchedulerBulk.setUseAIMDs(val);
-		chkPutSchedulerBulk.setUseAIMDs(val);
-		sskPutSchedulerBulk.setUseAIMDs(val);
+	public void setUseAIMDsRT(boolean val) {
+		if(!stats.node.enableNewLoadManagement(true))
+			val = true;
 		chkFetchSchedulerRT.setUseAIMDs(val);
 		sskFetchSchedulerRT.setUseAIMDs(val);
 		chkPutSchedulerRT.setUseAIMDs(val);
 		sskPutSchedulerRT.setUseAIMDs(val);
+	}
+	
+	public void setUseAIMDsBulk(boolean val) {
+		if(!stats.node.enableNewLoadManagement(false))
+			val = true;
+		chkFetchSchedulerBulk.setUseAIMDs(val);
+		sskFetchSchedulerBulk.setUseAIMDs(val);
+		chkPutSchedulerBulk.setUseAIMDs(val);
+		sskPutSchedulerBulk.setUseAIMDs(val);
 	}
 	
 }
