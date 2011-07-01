@@ -2580,7 +2580,7 @@ public class Node implements TimeSkewDetectorCallback {
 		});
 		enableNewLoadManagementRT = nodeConfig.getBoolean("enableNewLoadManagementRT");
 
-		nodeConfig.register("enableNewLoadManagementBulk", false, sortOrder++, true, false, "Node.enableNewLoadManagementBulk", "Node.enableNewLoadManagementBulkLong", new BooleanCallback() {
+		nodeConfig.register("enableNewLoadManagementBulk", true, sortOrder++, true, false, "Node.enableNewLoadManagementBulk", "Node.enableNewLoadManagementBulkLong", new BooleanCallback() {
 
 			@Override
 			public Boolean get() {
