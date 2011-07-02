@@ -5164,6 +5164,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		final boolean offeredKey;
 		final RequestType requestType;
 		private boolean failed;
+		private SlotWaiterFailedException fe;
 		final boolean realTime;
 		
 		// FIXME the counter is a quick hack to ensure that the original ordering is preserved
@@ -5279,14 +5280,11 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 					if(logMINOR) Logger.minor(this, "Already matched on "+this);
 					return;
 				}
-				if(reallyFailed) {
-					waitingFor.remove(peer);
-					if(!waitingFor.isEmpty()) {
-						if(logMINOR) Logger.minor(this, "Still waiting for other nodes "+Arrays.toString(waitingFor.toArray())+" on "+this);
-						return;
-					}
-				}
+				// Always wake up.
+				// Whether it's a backoff or a disconnect, we probably want to add another peer.
+				// FIXME get rid of parameter.
 				failed = true;
+				fe = new SlotWaiterFailedException(peer, reallyFailed);
 				notifyAll();
 			}
 		}
@@ -5297,7 +5295,15 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			}
 		}
 		
-		public PeerNode waitForAny(long maxWait) {
+		/** Wait for any of the PeerNode's we have queued on to accept (locally
+		 * i.e. to allocate a local slot to) this request.
+		 * @param maxWait The time to wait for. Can be 0, but if it is 0, this
+		 * is a "peek", i.e. if we return null, the queued slots remain live.
+		 * Whereas if maxWait is not 0, we will unregister when we timeout.
+		 * @return A matched node, or null.
+		 * @throws SlotWaiterFailedException If a peer actually failed.
+		 */
+		public PeerNode waitForAny(long maxWait) throws SlotWaiterFailedException {
 			// If waitingFor is non-empty after this function returns, we can
 			// be accepted when we shouldn't be accepted. So always ensure that
 			// the state is clean when returning, by clearing waitingFor and
@@ -5431,11 +5437,14 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			return acceptedBy != null || waitingFor.isEmpty() || failed;
 		}
 
-		private synchronized PeerNode grab() {
+		private synchronized PeerNode grab() throws SlotWaiterFailedException {
 			if(logMINOR) Logger.minor(this, "Returning in first check: accepted by "+acceptedBy+" waiting for "+waitingFor.size()+" failed "+failed+" accepted state "+acceptedState);
 			failed = false;
 			PeerNode got = acceptedBy;
 			acceptedBy = null; // Allow for it to wait again if necessary
+			SlotWaiterFailedException f = fe;
+			fe = null;
+			if(f != null) throw f;
 			return got;
 		}
 
@@ -5452,6 +5461,16 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			return waitingFor.size();
 		}
 
+	}
+	
+	static class SlotWaiterFailedException extends Exception {
+		final PeerNode pn;
+		final boolean fatal;
+		SlotWaiterFailedException(PeerNode p, boolean f) {
+			this.pn = p;
+			this.fatal = f;
+			// FIXME OPTIMISATION: arrange for empty stack trace
+		}
 	}
 	
 	/** Uses the information we receive on the load on the target node to determine whether
@@ -5787,7 +5806,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		outputLoadTracker(tag.realTimeFlag).maybeNotifySlotWaiter();
 	}
 	
-	static SlotWaiter createSlotWaiter(RequestTag tag, RequestType type, boolean offeredKey, boolean realTime) {
+	static SlotWaiter createSlotWaiter(UIDTag tag, RequestType type, boolean offeredKey, boolean realTime) {
 		return new SlotWaiter(tag, type, offeredKey, realTime);
 	}
 
