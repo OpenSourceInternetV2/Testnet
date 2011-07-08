@@ -5300,10 +5300,12 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		 * @param maxWait The time to wait for. Can be 0, but if it is 0, this
 		 * is a "peek", i.e. if we return null, the queued slots remain live.
 		 * Whereas if maxWait is not 0, we will unregister when we timeout.
+		 * @param timeOutIsFatal If true, if we timeout, count it for each node
+		 * involved as a fatal timeout.
 		 * @return A matched node, or null.
 		 * @throws SlotWaiterFailedException If a peer actually failed.
 		 */
-		public PeerNode waitForAny(long maxWait) throws SlotWaiterFailedException {
+		public PeerNode waitForAny(long maxWait, boolean timeOutIsFatal) throws SlotWaiterFailedException {
 			// If waitingFor is non-empty after this function returns, we can
 			// be accepted when we shouldn't be accepted. So always ensure that
 			// the state is clean when returning, by clearing waitingFor and
@@ -5445,6 +5447,11 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 				failed = false;
 				fe = null;
 			}
+			if(timeOutIsFatal && all != null) {
+				for(PeerNode pn : all) {
+					pn.outputLoadTracker(realTime).reportFatalTimeoutInWait();
+				}
+			}
 			unregister(ret, all);
 			return ret;
 		}
@@ -5497,6 +5504,9 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		
 		private boolean dontSendUnlessGuaranteed;
 		
+		private long totalFatalTimeouts;
+		private long totalAllocated;
+		
 		public void reportLoadStatus(PeerLoadStats stat) {
 			if(logMINOR) Logger.minor(this, "Got load status : "+stat);
 			synchronized(routedToLock) {
@@ -5505,6 +5515,18 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			maybeNotifySlotWaiter();
 		}
 		
+		synchronized /* lock only used for counter */ void reportFatalTimeoutInWait() {
+			totalFatalTimeouts++;
+		}
+
+		synchronized /* lock only used for counter */ void reportAllocatedAfterWait() {
+			totalAllocated++;
+		}
+		
+		public synchronized double proportionTimingOutFatallyInWait() {
+			return (double)totalFatalTimeouts / ((double)(totalFatalTimeouts + totalAllocated));
+		}
+
 		public PeerLoadStats getLastIncomingLoadStats() {
 			synchronized(routedToLock) {
 				return lastIncomingLoadStats;
@@ -5712,6 +5734,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 						if(logMINOR) Logger.minor(this, "Accept state is "+acceptState+" for "+slot+" - waking up on "+this);
 						peersForSuccessfulSlot = slot.innerOnWaited(PeerNode.this, acceptState);
 						if(peersForSuccessfulSlot == null) continue;
+						reportAllocatedAfterWait();
 						slotWaiterTypeCounter = typeNum;
 					}
 					slot.unregister(PeerNode.this, peersForSuccessfulSlot);

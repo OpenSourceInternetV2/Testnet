@@ -170,6 +170,15 @@ loadWaiterLoop:
         
         return false;
 	}
+    
+    /** Limit the number of nodes that we route to that reject the request due to
+     * looping, while waiting for a peer. This ensures that if there is a slow 
+     * node, we don't route to all the other nodes and DNF, rather than waiting, 
+     * and possibly timing out, for the slow node. Note that this does not cause
+     * us to stop routing, only to stop adding more nodes to wait for while
+     * waiting. This is particularly an issue if we have a fast network connected
+     * to a slow network. */
+    private static int MAX_REJECTED_LOOPS = 3;
 
     /**
      * @param next
@@ -197,6 +206,13 @@ loadWaiterLoop:
         
     loadWaiterLoop:
     	while(true) {
+    		
+    		boolean canRerouteWhileWaiting = true;
+    		synchronized(this) {
+    			if(rejectedLoops > MAX_REJECTED_LOOPS)
+    				canRerouteWhileWaiting = false;
+    		}
+    		
     		if(logMINOR) Logger.minor(this, "Going around loop");
     		
     		if(next == null) {
@@ -257,7 +273,8 @@ loadWaiterLoop:
     				}
 				
     	            if(next.isLowCapacity(realTimeFlag)) {
-    	            	if(waiter.waitingForCount() == 1) {
+    	            	if(waiter.waitingForCount() == 1 // if not, already accepted 
+    	            			&& canRerouteWhileWaiting) {
     	            		canWaitFor++;
     	            		// Wait for another one if the first is low capacity.
         					// Nodes we were waiting for that then became backed off will have been removed from the list.
@@ -273,7 +290,7 @@ loadWaiterLoop:
     	            			if(logMINOR) Logger.minor(this, "Waiting for "+next+" and "+alsoWaitFor+" on "+waiter+" because realtime");
     	            			PeerNode matched;
 								try {
-									matched = waiter.waitForAny(0);
+									matched = waiter.waitForAny(0, false);
 								} catch (SlotWaiterFailedException e) {
 									if(logMINOR) Logger.minor(this, "Rerouting as slot waiter failed...");
 									continue;
@@ -290,7 +307,8 @@ loadWaiterLoop:
     			
     			if(realTimeFlag) canWaitFor++;
     			// Skip it and go straight to rerouting if no next, as above.
-    			if(expectedAcceptState == null && waiter.waitingForCount() <= canWaitFor) {
+    			if(expectedAcceptState == null && waiter.waitingForCount() <= canWaitFor
+    					&& canRerouteWhileWaiting) {
             		// Wait for another one if realtime.
 					// Nodes we were waiting for that then became backed off will have been removed from the list.
 					HashSet<PeerNode> exclude = waiter.waitingForList();
@@ -305,7 +323,7 @@ loadWaiterLoop:
             			if(logMINOR) Logger.minor(this, "Waiting for "+next+" and "+alsoWaitFor+" on "+waiter+" because realtime");
             			PeerNode matched;
 						try {
-							matched = waiter.waitForAny(0);
+							matched = waiter.waitForAny(0, false);
 						} catch (SlotWaiterFailedException e) {
 							if(logMINOR) Logger.minor(this, "Rerouting as slot waiter failed...");
 							continue;
@@ -320,7 +338,8 @@ loadWaiterLoop:
     			
     			if(addedExtraNode) canWaitFor++;
     			// Skip it and go straight to rerouting if no next, as above.
-    			if(expectedAcceptState == null && waiter.waitingForCount() <= canWaitFor) {
+    			if(expectedAcceptState == null && waiter.waitingForCount() <= canWaitFor
+    					&& canRerouteWhileWaiting) {
             		// Wait for another one if realtime.
 					// Nodes we were waiting for that then became backed off will have been removed from the list.
 					HashSet<PeerNode> exclude = waiter.waitingForList();
@@ -335,7 +354,7 @@ loadWaiterLoop:
             			if(logMINOR) Logger.minor(this, "Waiting for "+next+" and "+alsoWaitFor+" on "+waiter+" because realtime");
             			PeerNode matched;
 						try {
-							matched = waiter.waitForAny(0);
+							matched = waiter.waitForAny(0, false);
 						} catch (SlotWaiterFailedException e) {
 							// Reroute.
 							continue;
@@ -355,9 +374,10 @@ loadWaiterLoop:
     					// However after adding it once, we will wait for as long as it takes.
     					maxWait = getShortSlotWaiterTimeout();
     				}
+    				HashSet<PeerNode> waitedFor = waiter.waitingForList();
     				PeerNode waited;
 					try {
-						waited = waiter.waitForAny(maxWait);
+						waited = waiter.waitForAny(maxWait, addedExtraNode);
 					} catch (SlotWaiterFailedException e) {
 						// Failed. Reroute.
 						continue;
@@ -368,7 +388,7 @@ loadWaiterLoop:
     					
     					if(addedExtraNode) {
     						// Backtrack
-    						rnf();
+    						timedOutWhileWaiting(getLoad(waitedFor));
     						return false;
     					} else {
     						addedExtraNode = true;
@@ -479,7 +499,15 @@ loadWaiterLoop:
         return false;
 	}
     
-    protected abstract long getLongSlotWaiterTimeout();
+    private double getLoad(HashSet<PeerNode> waitedFor) {
+    	double total = 0;
+    	for(PeerNode pn : waitedFor) {
+    		total += pn.outputLoadTracker(realTimeFlag).proportionTimingOutFatallyInWait();
+    	}
+    	return total / waitedFor.size();
+	}
+
+	protected abstract long getLongSlotWaiterTimeout();
     
     protected abstract long getShortSlotWaiterTimeout();
 
@@ -492,6 +520,8 @@ loadWaiterLoop:
         	Logger.minor(this, "Took "+tryCount+" tries in "+TimeUtil.formatTime(delta, 2, true)+" waited="+waitedForLoadManagement+" retried="+retriedForLoadManagement+(realTimeFlag ? " (realtime)" : " (bulk)")+((source == null)?" (local)":" (remote)"));
         node.nodeStats.reportNLMDelay(delta, realTimeFlag, source == null);
 	}
+	
+	private int rejectedLoops;
 
 	/** Here FINISHED means accepted, WAIT means try again (soft reject). */
     private DO waitForAccepted(RequestLikelyAcceptedState expectedAcceptState, PeerNode next, UIDTag origTag) {
@@ -517,6 +547,9 @@ loadWaiterLoop:
     			forwardRejectedOverload();
     			int t = timeSinceSent();
     			node.failureTable.onFailed(key, next, htl, t, t);
+    			synchronized(this) {
+    				rejectedLoops++;
+    			}
     			// Try next node
     			handleAcceptedRejectedTimeout(next, origTag);
     			return DO.NEXT_PEER;
@@ -650,6 +683,12 @@ loadWaiterLoop:
 	protected abstract int getAcceptedTimeout();
 	
 	protected abstract void rnf();
+	
+	/** We timed out while waiting for a slot from any node. Fail the request.
+	 * @param load The proportion of requests getting timed out, on average,
+	 * across the nodes we are waiting for. This is used to decide how long the
+	 * RecentlyFailed should be for. */
+	protected abstract void timedOutWhileWaiting(double load);
 	
 	protected abstract void onAccepted(PeerNode next);
 	

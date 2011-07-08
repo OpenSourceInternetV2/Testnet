@@ -1765,6 +1765,42 @@ public class Node implements TimeSkewDetectorCallback {
 
 		uptime = new UptimeEstimator(runDir, ticker, darknetCrypto.identityHash);
 
+		// Must be set up before creating NodeClientCore.
+		
+		nodeConfig.register("enableNewLoadManagementRT", false, sortOrder++, true, false, "Node.enableNewLoadManagementRT", "Node.enableNewLoadManagementRTLong", new BooleanCallback() {
+
+			@Override
+			public Boolean get() {
+				return enableNewLoadManagementRT;
+			}
+
+			@Override
+			public void set(Boolean val) throws InvalidConfigValueException,
+					NodeNeedRestartException {
+				enableNewLoadManagementRT = val;
+				Node.this.clientCore.onSetNewLoadManagementRT(val);
+			}
+			
+		});
+		enableNewLoadManagementRT = nodeConfig.getBoolean("enableNewLoadManagementRT");
+
+		nodeConfig.register("enableNewLoadManagementBulk", true, sortOrder++, true, false, "Node.enableNewLoadManagementBulk", "Node.enableNewLoadManagementBulkLong", new BooleanCallback() {
+
+			@Override
+			public Boolean get() {
+				return enableNewLoadManagementBulk;
+			}
+
+			@Override
+			public void set(Boolean val) throws InvalidConfigValueException,
+					NodeNeedRestartException {
+				enableNewLoadManagementBulk = val;
+				Node.this.clientCore.onSetNewLoadManagementBulk(val);
+			}
+			
+		});
+		enableNewLoadManagementBulk = nodeConfig.getBoolean("enableNewLoadManagementBulk");
+
 		// ULPRs
 
 		failureTable = new FailureTable(this);
@@ -2564,38 +2600,6 @@ public class Node implements TimeSkewDetectorCallback {
 		maxPacketSize = nodeConfig.getInt("maxPacketSize");
 		updateMTU();
 		
-		nodeConfig.register("enableNewLoadManagementRT", false, sortOrder++, true, false, "Node.enableNewLoadManagementRT", "Node.enableNewLoadManagementRTLong", new BooleanCallback() {
-
-			@Override
-			public Boolean get() {
-				return enableNewLoadManagementRT;
-			}
-
-			@Override
-			public void set(Boolean val) throws InvalidConfigValueException,
-					NodeNeedRestartException {
-				enableNewLoadManagementRT = val;
-			}
-			
-		});
-		enableNewLoadManagementRT = nodeConfig.getBoolean("enableNewLoadManagementRT");
-
-		nodeConfig.register("enableNewLoadManagementBulk", true, sortOrder++, true, false, "Node.enableNewLoadManagementBulk", "Node.enableNewLoadManagementBulkLong", new BooleanCallback() {
-
-			@Override
-			public Boolean get() {
-				return enableNewLoadManagementBulk;
-			}
-
-			@Override
-			public void set(Boolean val) throws InvalidConfigValueException,
-					NodeNeedRestartException {
-				enableNewLoadManagementBulk = val;
-			}
-			
-		});
-		enableNewLoadManagementBulk = nodeConfig.getBoolean("enableNewLoadManagementBulk");
-
 		nodeConfig.finishedInitialization();
 		if(shouldWriteConfig)
 			config.store();
