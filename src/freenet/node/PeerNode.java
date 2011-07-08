@@ -5375,6 +5375,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 						tag.removeRoutingTo(p);
 						return other;
 					}
+					p.outputLoadTracker(realTime).reportAllocated();
 					// p != null so in this one instance we're going to ignore fe.
 					return p;
 				}
@@ -5519,7 +5520,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			totalFatalTimeouts++;
 		}
 
-		synchronized /* lock only used for counter */ void reportAllocatedAfterWait() {
+		synchronized /* lock only used for counter */ void reportAllocated() {
 			totalAllocated++;
 		}
 		
@@ -5622,9 +5623,10 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 					all = waiter.innerOnWaited(PeerNode.this, RequestLikelyAcceptedState.UNKNOWN);
 				}
 			}
-			if(all != null)
+			if(all != null) {
+				reportAllocated();
 				waiter.unregister(null, all);
-			else if(queued) {
+			} else if(queued) {
 				if((!isRoutable()) || (isInMandatoryBackoff(System.currentTimeMillis(), realTime))) {
 					// Has lost connection etc since start of the method.
 					if(logMINOR) Logger.minor(this, "Queued but not routable or in mandatory backoff, failing");
@@ -5735,7 +5737,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 						if(logMINOR) Logger.minor(this, "Accept state is "+acceptState+" for "+slot+" - waking up on "+this);
 						peersForSuccessfulSlot = slot.innerOnWaited(PeerNode.this, acceptState);
 						if(peersForSuccessfulSlot == null) continue;
-						reportAllocatedAfterWait();
+						reportAllocated();
 						slotWaiterTypeCounter = typeNum;
 					}
 					slot.unregister(PeerNode.this, peersForSuccessfulSlot);
