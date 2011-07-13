@@ -50,17 +50,17 @@ public class Version {
 	public static final String protocolVersion = "TESTNET 1.0";
 
 	/** The build number of the current revision */
-	private static final int buildNumber = 60;
+	private static final int buildNumber = 61;
 
 	/** Oldest build of Fred we will talk to */
 	private static final int oldLastGoodBuild = 59;
-	private static final int newLastGoodBuild = 60;
+	private static final int newLastGoodBuild = 61;
 	static final long transitionTime;
 
 	static {
 		final Calendar _cal = Calendar.getInstance(TimeZone.getTimeZone("GMT"));
 		// year, month - 1 (or constant), day, hour, minute, second
-		_cal.set( 2011, Calendar.JULY, 14, 0, 0, 0 );
+		_cal.set( 2011, Calendar.JULY, 15, 0, 0, 0 );
 		transitionTime = _cal.getTimeInMillis();
 	}
 
