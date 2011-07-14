@@ -2089,7 +2089,7 @@ public class Node implements TimeSkewDetectorCallback {
 		maxTotalKeys = maxTotalDatastoreSize / sizePerKey;
 		
 		boolean hadBloomFilter = true;
-		s = nodeConfig.getRawOption("storeBloomFilterSize");
+		String s = nodeConfig.getRawOption("storeBloomFilterSize");
 		if(s != null && s.equals("0"))
 			hadBloomFilter = false;
 		
