@@ -86,6 +86,7 @@ public class FirstTimeWizardToadlet extends Toadlet {
 		WIZARD_STEP currentStep = WIZARD_STEP.valueOf(request.getParam("step", WIZARD_STEP.WELCOME.toString()));
 
 		if(currentStep == WIZARD_STEP.BROWSER_WARNING) {
+			
 			boolean incognito = request.isParameterSet("incognito");
 			// Bug 3376: Opening Chrome in incognito mode from command line will open a new non-incognito window if the browser is already open.
 			// See http://code.google.com/p/chromium/issues/detail?id=9636
@@ -101,9 +102,23 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			// http://jeremiahgrossman.blogspot.com/2006/08/i-know-where-youve-been.html
 			// https://developer.mozilla.org/en/Firefox_4_for_developers
 			// https://developer.mozilla.org/en/CSS/Privacy_and_the_%3avisited_selector
+			String ua = request.getHeader("user-agent");
+			boolean isFirefox = false;
+			boolean isOldFirefox = false;
+			boolean mightHaveClobberedTabs = false;
+			if(ua != null) {
+				isFirefox = ua.contains("Firefox/");
+				if(isFirefox) {
+					if(incognito)
+						mightHaveClobberedTabs = true;
+					if(ua.contains("Firefox/0.") || ua.contains("Firefox/1.") || ua.contains("Firefox/2.") || ua.contains("Firefox/3."))
+						isOldFirefox = true;
+				}
+			}
 			incognito = false;
-
-			PageNode page = ctx.getPageMaker().getPageNode(incognito ? l10n("browserWarningIncognitoPageTitle") : l10n("browserWarningPageTitle"), false, ctx);
+			boolean isRelativelySafe = isFirefox && !isOldFirefox;
+			
+			PageNode page = ctx.getPageMaker().getPageNode(incognito ? l10n("browserWarningIncognitoPageTitle") : (isRelativelySafe ? l10n("browserWarningPageTitleRelativelySafe") : l10n("browserWarningPageTitle")), false, ctx);
 			HTMLNode pageNode = page.outer;
 			HTMLNode contentNode = page.content;
 			
@@ -118,13 +133,26 @@ public class FirstTimeWizardToadlet extends Toadlet {
 
 			if(incognito)
 				infoboxHeader.addChild("#", l10n("browserWarningIncognitoShort"));
-			else
+			else if(isRelativelySafe)
 				infoboxHeader.addChild("#", l10n("browserWarningShort"));
-			NodeL10n.getBase().addL10nSubstitution(infoboxContent, incognito ? "FirstTimeWizardToadlet.browserWarningIncognito" : "FirstTimeWizardToadlet.browserWarning", new String[] { "bold" }, new HTMLNode[] { HTMLNode.STRONG });
-
-			if(incognito)
-				infoboxContent.addChild("p", l10n("browserWarningIncognitoSuggestion"));
 			else
+				infoboxHeader.addChild("#", l10n("browserWarningShortRelativelySafe"));
+			
+			if(isOldFirefox) {
+				HTMLNode p = infoboxContent.addChild("p");
+				p.addChild("#", l10n("browserWarningOldFirefox"));
+				if(!incognito)
+					p.addChild("#", " " + l10n("browserWarningOldFirefoxNewerHasPrivacyMode"));
+			}
+			
+			if(isRelativelySafe)
+				infoboxContent.addChild("p", incognito ? l10n("browserWarningIncognitoMaybeSafe") : l10n("browserWarningMaybeSafe"));
+			else
+				NodeL10n.getBase().addL10nSubstitution(infoboxContent, incognito ? "FirstTimeWizardToadlet.browserWarningIncognito" : "FirstTimeWizardToadlet.browserWarning", new String[] { "bold" }, new HTMLNode[] { HTMLNode.STRONG });
+
+			if(incognito) {
+				infoboxContent.addChild("p", l10n("browserWarningIncognitoSuggestion"));
+			} else
 				infoboxContent.addChild("p", l10n("browserWarningSuggestion"));
 
 			infoboxContent.addChild("p").addChild("a", "href", "?step="+WIZARD_STEP.MISC, NodeL10n.getBase().getString("FirstTimeWizardToadlet.clickContinue"));
@@ -386,7 +414,10 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			HTMLNode bandwidthForm = ctx.addFormChild(bandwidthInfoboxContent, ".", "dsForm");
 			HTMLNode result = bandwidthForm.addChild("select", "name", "ds");
 
+			long maxSize = maxDatastoreSize();
+			
 			long autodetectedSize = canAutoconfigureDatastoreSize();
+			if(maxSize < autodetectedSize) autodetectedSize = maxSize;
 
 			@SuppressWarnings("unchecked")
 			Option<Long> sizeOption = (Option<Long>) config.get("node").getOption("storeSize");
@@ -397,17 +428,27 @@ public class FirstTimeWizardToadlet extends Toadlet {
 				result.addChild("option", new String[] { "value", "selected" }, new String[] { SizeUtil.formatSize(autodetectedSize), "on" }, SizeUtil.formatSize(autodetectedSize));
 			if(autodetectedSize != 512*1024*1024)
 				result.addChild("option", "value", "512M", "512 MiB");
+			// We always allow at least 1GB
 			result.addChild("option", "value", "1G", "1 GiB");
-			if(autodetectedSize != -1 || !sizeOption.isDefault())
-				result.addChild("option", "value", "2G", "2 GiB");
-			else
-				result.addChild("option", new String[] { "value", "selected" }, new String[] { "2G", "on" }, "2GiB");
+			if(maxSize >= 2*1024*1024*1024) {
+				if(autodetectedSize != -1 || !sizeOption.isDefault())
+					result.addChild("option", "value", "2G", "2 GiB");
+				else
+					result.addChild("option", new String[] { "value", "selected" }, new String[] { "2G", "on" }, "2GiB");
+			}
+			if(maxSize >= 3*1024*1024*1024)
 			result.addChild("option", "value", "3G", "3 GiB");
+			if(maxSize >= 5*1024*1024*1024)
 			result.addChild("option", "value", "5G", "5 GiB");
-			result.addChild("option", "value", "10G", "10 GiB");
+			if(maxSize >= 10*1024*1024*1024)
+				result.addChild("option", "value", "10G", "10 GiB");
+			if(maxSize >= 20*1024*1024*1024)
 			result.addChild("option", "value", "20G", "20 GiB");
+			if(maxSize >= 30*1024*1024*1024)
 			result.addChild("option", "value", "30G", "30 GiB");
+			if(maxSize >= 50*1024*1024*1024)
 			result.addChild("option", "value", "50G", "50 GiB");
+			if(maxSize >= 100*1024*1024*1024)
 			result.addChild("option", "value", "100G", "100 GiB");
 
 			bandwidthForm.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "dsF", NodeL10n.getBase().getString("FirstTimeWizardToadlet.continue")});
@@ -912,6 +953,13 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			return bytes / 2;
 		}else
 			return -1;
+	}
+	
+	private long maxDatastoreSize() {
+		long maxMemory = Runtime.getRuntime().maxMemory();
+		if(maxMemory == Long.MAX_VALUE) return Long.MAX_VALUE;
+		if(maxMemory < 128*1024*1024) return 1024*1024*1024;
+		return (((((maxMemory - 100*1024*1024)*4)/5) / (4 * 3) /* it's actually size per one key of each type */)) * Node.sizePerKey;
 	}
 
 	private long canAutoconfigureDatastoreSize() {

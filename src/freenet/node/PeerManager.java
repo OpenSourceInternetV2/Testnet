@@ -1053,6 +1053,7 @@ public class PeerManager {
 			}
 			if(excludeMandatoryBackoff && p.isInMandatoryBackoff(now, realTime)) {
 				if(logMINOR) Logger.minor(this, "Skipping (mandatory backoff): "+p.getPeer());
+				continue;
 			}
 			
 			/** For RecentlyFailed i.e. request quenching */

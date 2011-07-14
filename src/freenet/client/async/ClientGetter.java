@@ -338,7 +338,7 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 		} catch (OutOfMemoryError e) {
 			OOMHandler.handleOOM(e);
 			System.err.println("Failing above attempted fetch...");
-			onFailure(new FetchException(FetchException.INTERNAL_ERROR, e), state, container, context);
+			onFailure(new FetchException(FetchException.INTERNAL_ERROR, e), state, container, context, true);
 			if(finalResult != null && finalResult != returnBucket) {
 				finalResult.free();
 				if(persistent()) finalResult.removeFrom(container);
@@ -350,7 +350,7 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 			return;
 		} catch(UnsafeContentTypeException e) {
 			Logger.normal(this, "Error filtering content: will not validate", e);
-			onFailure(new FetchException(e.getFetchErrorCode(), expectedSize, e, ctx.overrideMIME != null ? ctx.overrideMIME : expectedMIME), state/*Not really the state's fault*/, container, context);
+			onFailure(new FetchException(e.getFetchErrorCode(), expectedSize, e, ctx.overrideMIME != null ? ctx.overrideMIME : expectedMIME), state/*Not really the state's fault*/, container, context, true);
 			if(finalResult != null && finalResult != returnBucket) {
 				finalResult.free();
 				if(persistent()) finalResult.removeFrom(container);
@@ -363,7 +363,7 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 		} catch(URISyntaxException e) {
 			//Impossible
 			Logger.error(this, "URISyntaxException converting a FreenetURI to a URI!: "+e, e);
-			onFailure(new FetchException(FetchException.INTERNAL_ERROR, e), state/*Not really the state's fault*/, container, context);
+			onFailure(new FetchException(FetchException.INTERNAL_ERROR, e), state/*Not really the state's fault*/, container, context, true);
 			if(finalResult != null && finalResult != returnBucket) {
 				finalResult.free();
 				if(persistent()) finalResult.removeFrom(container);
@@ -375,7 +375,7 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 			return;
 		} catch(CompressionOutputSizeException e) {
 			Logger.error(this, "Caught "+e, e);
-			onFailure(new FetchException(FetchException.TOO_BIG, e), state, container, context);
+			onFailure(new FetchException(FetchException.TOO_BIG, e), state, container, context, true);
 			if(finalResult != null && finalResult != returnBucket) {
 				finalResult.free();
 				if(persistent()) finalResult.removeFrom(container);
@@ -387,7 +387,7 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 			return;
 		} catch(IOException e) {
 			Logger.error(this, "Caught "+e, e);
-			onFailure(new FetchException(FetchException.BUCKET_ERROR, e), state, container, context);
+			onFailure(new FetchException(FetchException.BUCKET_ERROR, e), state, container, context, true);
 			if(finalResult != null && finalResult != returnBucket) {
 				finalResult.free();
 				if(persistent()) finalResult.removeFrom(container);
@@ -399,7 +399,7 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 			return;
 		} catch(FetchException e) {
 			Logger.error(this, "Caught "+e, e);
-			onFailure(e, state, container, context);
+			onFailure(e, state, container, context, true);
 			if(finalResult != null && finalResult != returnBucket) {
 				finalResult.free();
 				if(persistent()) finalResult.removeFrom(container);
@@ -411,7 +411,7 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 			return;
 		} catch(Throwable t) {
 			Logger.error(this, "Caught "+t, t);
-			onFailure(new FetchException(FetchException.INTERNAL_ERROR, t), state, container, context);
+			onFailure(new FetchException(FetchException.INTERNAL_ERROR, t), state, container, context, true);
 			if(finalResult != null && finalResult != returnBucket) {
 				finalResult.free();
 				if(persistent()) finalResult.removeFrom(container);
@@ -439,8 +439,16 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 	 * @param e The reason for failure, in the form of a FetchException.
 	 * @param state The failing state.
 	 */
-	@Override
 	public void onFailure(FetchException e, ClientGetState state, ObjectContainer container, ClientContext context) {
+		onFailure(e, state, container, context, false);
+	}
+
+	/**
+	 * Internal version. Adds one parameter.
+	 * @param force If true, finished may already have been set. This is usually
+	 * set when called from onSuccess after it has set finished = true.
+	 */
+	public void onFailure(FetchException e, ClientGetState state, ObjectContainer container, ClientContext context, boolean force) {
 		if(logMINOR)
 			Logger.minor(this, "Failed from "+state+" : "+e+" on "+this, e);
 		try {
@@ -448,9 +456,10 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 		} catch (IOException ioe) {
 			// the request is already failed but fblob creation failed too
 			// the invalid fblob must be told, more important then an valid but incomplete fblob (ADNF for example)
-			e = new FetchException(FetchException.BUCKET_ERROR, "Failed to close binary blob stream: "+ioe);
+			if(e.mode != FetchException.CANCELLED && !force)
+				e = new FetchException(FetchException.BUCKET_ERROR, "Failed to close binary blob stream: "+ioe);
 		} catch (BinaryBlobAlreadyClosedException ee) {
-			if(e.mode != FetchException.BUCKET_ERROR)
+			if(e.mode != FetchException.BUCKET_ERROR && e.mode != FetchException.CANCELLED && !force)
 				e = new FetchException(FetchException.BUCKET_ERROR, "Failed to close binary blob stream, already closed: "+ee, ee);
 		}
 		if(persistent())
@@ -481,7 +490,7 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 			}
 			boolean alreadyFinished = false;
 			synchronized(this) {
-				if(finished) {
+				if(finished && !force) {
 					Logger.error(this, "Already finished - not calling callbacks on "+this, new Exception("error"));
 					alreadyFinished = true;
 				}
