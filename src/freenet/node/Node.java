@@ -2262,7 +2262,7 @@ public class Node implements TimeSkewDetectorCallback {
 		if (storeType.equals("salt-hash")) {
 			initRAMFS();
 			// FIXME remove migration code
-			final int lastVersionWithBloom = 1384;
+			final int lastVersionWithBloom = 62;
 			if(lastVersion > 0 && lastVersion <= lastVersionWithBloom) {
 				// Check for a comment in wrapper.conf saying we've already upgraded, otherwise update it and restart.
 				long extraMemory = maxTotalKeys * 3 * 4;
