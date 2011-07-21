@@ -287,7 +287,11 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 	public final DecayingKeyspaceAverage avgSlashdotCacheSSKSuccess;
 	public final DecayingKeyspaceAverage avgClientCacheSSKSuccess;
 	public final DecayingKeyspaceAverage avgStoreSSKSuccess;
-
+	
+	private volatile boolean enableNewLoadManagementRT;
+	private volatile boolean enableNewLoadManagementBulk;
+	private boolean useAIMDsRT;
+	private boolean useAIMDsBulk;
 
 	NodeStats(Node node, int sortOrder, SubConfig statsConfig, int obwLimit, int ibwLimit, int lastVersion) throws NodeInitException {
 		this.node = node;
@@ -461,7 +465,87 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 			}
 
 		});
+		
+		statsConfig.register("enableNewLoadManagementRT", false, sortOrder++, true, false, "Node.enableNewLoadManagementRT", "Node.enableNewLoadManagementRTLong", new BooleanCallback() {
 
+			@Override
+			public Boolean get() {
+				return enableNewLoadManagementRT;
+			}
+
+			@Override
+			public void set(Boolean val) throws InvalidConfigValueException,
+					NodeNeedRestartException {
+				enableNewLoadManagementRT = val;
+				onSetNewLoadManagementRT(val);
+			}
+			
+		});
+		enableNewLoadManagementRT = statsConfig.getBoolean("enableNewLoadManagementRT");
+
+		statsConfig.register("enableNewLoadManagementBulk", false, sortOrder++, true, false, "Node.enableNewLoadManagementBulk", "Node.enableNewLoadManagementBulkLong", new BooleanCallback() {
+
+			@Override
+			public Boolean get() {
+				return enableNewLoadManagementBulk;
+			}
+
+			@Override
+			public void set(Boolean val) throws InvalidConfigValueException,
+					NodeNeedRestartException {
+				enableNewLoadManagementBulk = val;
+				onSetNewLoadManagementBulk(val);
+			}
+			
+		});
+		enableNewLoadManagementBulk = statsConfig.getBoolean("enableNewLoadManagementBulk");
+
+		statsConfig.register("useAIMDsRT", true, sortOrder++, true, false, "NodeClientCore.useAIMDsRT", "NodeClientCore.useAIMDsRTLong", new BooleanCallback() {
+
+			@Override
+			public Boolean get() {
+				synchronized(NodeStats.this) {
+					return useAIMDsRT;
+				}
+			}
+
+			@Override
+			public void set(Boolean val) throws InvalidConfigValueException,
+					NodeNeedRestartException {
+				synchronized(NodeStats.this) {
+					if(useAIMDsRT == val.booleanValue()) return;
+					useAIMDsRT = val;
+				}
+				NodeStats.this.node.clientCore.onSetUseAIMDsRT(val || !enableNewLoadManagementRT);
+			}
+			
+		});
+		
+		useAIMDsRT = statsConfig.getBoolean("useAIMDsRT");
+		
+		statsConfig.register("useAIMDsBulk", true, sortOrder++, true, false, "NodeClientCore.useAIMDsBulk", "NodeClientCore.useAIMDsBulkLong", new BooleanCallback() {
+
+			@Override
+			public Boolean get() {
+				synchronized(NodeStats.this) {
+					return useAIMDsBulk;
+				}
+			}
+
+			@Override
+			public void set(Boolean val) throws InvalidConfigValueException,
+					NodeNeedRestartException {
+				synchronized(NodeStats.this) {
+					if(useAIMDsBulk == val.booleanValue()) return;
+					useAIMDsBulk = val;
+				}
+				NodeStats.this.node.clientCore.onSetUseAIMDsBulk(val || !enableNewLoadManagementBulk);
+			}
+			
+		});
+		
+		useAIMDsBulk = statsConfig.getBoolean("useAIMDsBulk");
+		
 		persister = new ConfigurablePersister(this, statsConfig, "nodeThrottleFile", "node-throttle.dat", sortOrder++, true, false,
 				"NodeStat.statsPersister", "NodeStat.statsPersisterLong", node.ticker, node.getRunDir());
 
@@ -3558,7 +3642,7 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 		synchronized(slotTimeoutsSync) {
 			if(fatalTimeoutsInWaitLocal + fatalTimeoutsInWaitRemote + 
 					allocatedSlotLocal + allocatedSlotRemote > 0) {
-				content.addChild("#", l10n("timeoutFractions"));
+				content.addChild("b", l10n("timeoutFractions"));
 				table = content.addChild("table", "border", "0");
 				header = table.addChild("tr");
 				header.addChild("th", l10n("localHeader"));
@@ -3594,4 +3678,33 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 		}
 	}
 	
+	
+	public boolean enableNewLoadManagement(boolean realTimeFlag) {
+		return realTimeFlag ? enableNewLoadManagementRT : enableNewLoadManagementBulk;
+	}
+
+	public synchronized boolean useAIMDsBulk() {
+		return useAIMDsBulk;
+	}
+
+	public synchronized boolean useAIMDsRT() {
+		return useAIMDsRT;
+	}
+	
+	public void onSetNewLoadManagementBulk(boolean val) {
+		boolean useAIMDs;
+		synchronized(NodeStats.this) {
+			useAIMDs = useAIMDsBulk;
+		}
+		node.clientCore.onSetUseAIMDsBulk(useAIMDs || !val);
+	}
+
+	public void onSetNewLoadManagementRT(boolean val) {
+		boolean useAIMDs;
+		synchronized(NodeStats.this) {
+			useAIMDs = useAIMDsRT;
+		}
+		node.clientCore.onSetUseAIMDsRT(useAIMDs || !val);
+	}
+
 }

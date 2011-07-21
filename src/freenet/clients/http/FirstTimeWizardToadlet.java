@@ -14,6 +14,7 @@ import freenet.client.filter.GenericReadFilterCallback;
 import freenet.config.Config;
 import freenet.config.ConfigException;
 import freenet.config.Option;
+import freenet.config.EnumerableOptionCallback;
 import freenet.l10n.NodeL10n;
 import freenet.node.MasterKeysFileSizeException;
 import freenet.node.MasterKeysWrongPasswordException;
@@ -118,7 +119,7 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			incognito = false;
 			boolean isRelativelySafe = isFirefox && !isOldFirefox;
 			
-			PageNode page = ctx.getPageMaker().getPageNode(incognito ? l10n("browserWarningIncognitoPageTitle") : (isRelativelySafe ? l10n("browserWarningPageTitleRelativelySafe") : l10n("browserWarningPageTitle")), false, ctx);
+			PageNode page = ctx.getPageMaker().getPageNode(incognito ? l10n("browserWarningIncognitoPageTitle") : (isRelativelySafe ? l10n("browserWarningPageTitleRelativelySafe") : l10n("browserWarningPageTitle")), false, false, ctx);
 			HTMLNode pageNode = page.outer;
 			HTMLNode contentNode = page.content;
 			
@@ -155,12 +156,12 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			} else
 				infoboxContent.addChild("p", l10n("browserWarningSuggestion"));
 
-			infoboxContent.addChild("p").addChild("a", "href", "?step="+WIZARD_STEP.MISC, NodeL10n.getBase().getString("FirstTimeWizardToadlet.clickContinue"));
+			infoboxContent.addChild("p").addChild("a", "href", "?step="+WIZARD_STEP.MISC, l10n("clickContinue"));
 
 			this.writeHTMLReply(ctx, 200, "OK", pageNode.generate());
 			return;
 		} else if(currentStep == WIZARD_STEP.OPENNET){
-			PageNode page = ctx.getPageMaker().getPageNode(l10n("opennetChoicePageTitle"), false, ctx);
+			PageNode page = ctx.getPageMaker().getPageNode(l10n("opennetChoicePageTitle"), false, false, ctx);
 			HTMLNode pageNode = page.outer;
 			HTMLNode contentNode = page.content;
 			
@@ -200,7 +201,7 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			p.addChild("i", l10n("opennetChoiceCon"));
 			p.addChild("#", ": "+l10n("opennetChoiceConnectStrangersCON"));
 			
-			form.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "opennetF", NodeL10n.getBase().getString("FirstTimeWizardToadlet.continue")});
+			form.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "opennetF", l10n("continue")});
 			form.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "cancel", NodeL10n.getBase().getString("Toadlet.cancel")});
 			HTMLNode foot = infoboxContent.addChild("div", "class", "toggleable");
 			foot.addChild("i", "¹: " + l10n("opennetChoiceHowSafeIsFreenetToggle"));
@@ -221,7 +222,7 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			this.writeHTMLReply(ctx, 200, "OK", pageNode.generate());
 			return;
 		} else if(currentStep == WIZARD_STEP.SECURITY_NETWORK) {
-			PageNode page = ctx.getPageMaker().getPageNode(l10n("networkSecurityPageTitle"), false, ctx);
+			PageNode page = ctx.getPageMaker().getPageNode(l10n("networkSecurityPageTitle"), false, false, ctx);
 			HTMLNode pageNode = page.outer;
 			HTMLNode contentNode = page.content;
 			
@@ -238,12 +239,14 @@ public class FirstTimeWizardToadlet extends Toadlet {
 				super.writeTemporaryRedirect(ctx, "step1", TOADLET_URL+"?step="+WIZARD_STEP.OPENNET);
 				return;
 			}
-			
-			boolean opennet = Fields.stringToBool(request.getParam("opennet", "false"));
+
+			String opennetParam = request.getParam("opennet", "false");
+			boolean opennet = Fields.stringToBool(opennetParam);
 
 			infoboxHeader.addChild("#", l10n(opennet ? "networkThreatLevelHeaderOpennet" : "networkThreatLevelHeaderDarknet"));
 			infoboxContent.addChild("p", l10n(opennet ? "networkThreatLevelIntroOpennet" : "networkThreatLevelIntroDarknet"));
 			HTMLNode form = ctx.addFormChild(infoboxContent, ".", "networkSecurityForm");
+			form.addChild("input", new String[] { "type", "name", "value" }, new String[] { "hidden", "opennet", opennetParam });
 			String controlName = "security-levels.networkThreatLevel";
 			if(opennet) {
 				HTMLNode div = form.addChild("div", "class", "opennetDiv");
@@ -272,12 +275,12 @@ public class FirstTimeWizardToadlet extends Toadlet {
 				}
 				form.addChild("p").addChild("b", l10nSec("networkThreatLevel.opennetFriendsWarning"));
 			}
-			form.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "networkSecurityF", NodeL10n.getBase().getString("FirstTimeWizardToadlet.continue")});
+			form.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "networkSecurityF", l10n("continue")});
 			form.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "cancel", NodeL10n.getBase().getString("Toadlet.cancel")});
 			this.writeHTMLReply(ctx, 200, "OK", pageNode.generate());
 			return;
 		} else if(currentStep == WIZARD_STEP.SECURITY_PHYSICAL) {
-			PageNode page = ctx.getPageMaker().getPageNode(l10n("physicalSecurityPageTitle"), false, ctx);
+			PageNode page = ctx.getPageMaker().getPageNode(l10n("physicalSecurityPageTitle"), false, false, ctx);
 			HTMLNode pageNode = page.outer;
 			HTMLNode contentNode = page.content;
 			
@@ -296,7 +299,7 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			HTMLNode div = form.addChild("div", "class", "opennetDiv");
 			String controlName = "security-levels.physicalThreatLevel";
 			HTMLNode swapWarning = div.addChild("p").addChild("i");
-			NodeL10n.getBase().addL10nSubstitution(swapWarning, "SecurityLevels.physicalThreatLevelSwapfile", new String[] { "bold", "truecrypt" }, new HTMLNode[] { HTMLNode.STRONG, HTMLNode.linkInNewWindow(GenericReadFilterCallback.escapeURL("http://www.truecrypt.org/")) });
+			NodeL10n.getBase().addL10nSubstitution(swapWarning, "SecurityLevels.physicalThreatLevelSwapfile", new String[] { "bold" }, new HTMLNode[] { HTMLNode.STRONG });
 			if(File.separatorChar == '\\')
 				swapWarning.addChild("#", " " + l10nSec("physicalThreatLevelSwapfileWindows"));
 			for(PHYSICAL_THREAT_LEVEL level : PHYSICAL_THREAT_LEVEL.values()) {
@@ -315,7 +318,7 @@ public class FirstTimeWizardToadlet extends Toadlet {
 				}
 			}
 			div.addChild("#", l10nSec("physicalThreatLevelEnd"));
-			form.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "physicalSecurityF", NodeL10n.getBase().getString("FirstTimeWizardToadlet.continue")});
+			form.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "physicalSecurityF", l10n("continue")});
 			form.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "cancel", NodeL10n.getBase().getString("Toadlet.cancel")});
 			this.writeHTMLReply(ctx, 200, "OK", pageNode.generate());
 			return;
@@ -325,7 +328,7 @@ public class FirstTimeWizardToadlet extends Toadlet {
 				super.writeTemporaryRedirect(ctx, "step3", TOADLET_URL+"?step="+WIZARD_STEP.BANDWIDTH);
 				return;
 			}
-			PageNode page = ctx.getPageMaker().getPageNode(l10n("step2Title"), false, ctx);
+			PageNode page = ctx.getPageMaker().getPageNode(l10n("step2Title"), false, false, ctx);
 			HTMLNode pageNode = page.outer;
 			HTMLNode contentNode = page.content;
 			
@@ -343,14 +346,14 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			HTMLNode nnameForm = ctx.addFormChild(nnameInfoboxContent, ".", "nnameForm");
 			nnameForm.addChild("input", "name", "nname");
 
-			nnameForm.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "nnameF", NodeL10n.getBase().getString("FirstTimeWizardToadlet.continue")});
+			nnameForm.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "nnameF", l10n("continue")});
 			nnameForm.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "cancel", NodeL10n.getBase().getString("Toadlet.cancel")});
 			this.writeHTMLReply(ctx, 200, "OK", pageNode.generate());
 			return;
 		} else if(currentStep == WIZARD_STEP.BANDWIDTH) {
 			// Attempt to skip one step if possible
 			int autodetectedLimit = canAutoconfigureBandwidth();
-			PageNode page = ctx.getPageMaker().getPageNode(l10n("step3Title"), false, ctx);
+			PageNode page = ctx.getPageMaker().getPageNode(l10n("step3Title"), false, false, ctx);
 			HTMLNode pageNode = page.outer;
 			HTMLNode contentNode = page.content;
 			
@@ -389,14 +392,14 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			result.addChild("option", "value", "64K", "1024+/1024 kbps (64K/s)");
 			result.addChild("option", "value", "1000K", l10n("bwlimitHigherSpeed"));
 
-			bandwidthForm.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "bwF", NodeL10n.getBase().getString("FirstTimeWizardToadlet.continue")});
+			bandwidthForm.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "bwF", l10n("continue")});
 			bandwidthForm.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "cancel", NodeL10n.getBase().getString("Toadlet.cancel")});
 			bandwidthInfoboxContent.addChild("#", l10n("bandwidthLimitAfter"));
 			this.writeHTMLReply(ctx, 200, "OK", pageNode.generate());
 			return;
 		} else if(currentStep == WIZARD_STEP.DATASTORE_SIZE) {
 			// Attempt to skip one step if possible
-			PageNode page = ctx.getPageMaker().getPageNode(l10n("step4Title"), false, ctx);
+			PageNode page = ctx.getPageMaker().getPageNode(l10n("step4Title"), false, false, ctx);
 			HTMLNode pageNode = page.outer;
 			HTMLNode contentNode = page.content;
 			
@@ -451,12 +454,12 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			if(maxSize >= 100*1024*1024*1024)
 			result.addChild("option", "value", "100G", "100 GiB");
 
-			bandwidthForm.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "dsF", NodeL10n.getBase().getString("FirstTimeWizardToadlet.continue")});
+			bandwidthForm.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "dsF", l10n("continue")});
 			bandwidthForm.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "cancel", NodeL10n.getBase().getString("Toadlet.cancel")});
 			this.writeHTMLReply(ctx, 200, "OK", pageNode.generate());
 			return;
 		} else if(currentStep == WIZARD_STEP.MISC) {
-			PageNode page = ctx.getPageMaker().getPageNode(l10n("stepMiscTitle"), false, ctx);
+			PageNode page = ctx.getPageMaker().getPageNode(l10n("stepMiscTitle"), false, false, ctx);
 			HTMLNode pageNode = page.outer;
 			HTMLNode contentNode = page.content;
 			
@@ -486,15 +489,15 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			miscInfoboxContent.addChild("p", l10n("pluginsLong"));
 			miscInfoboxContent.addChild("p").addChild("input", new String[] { "type", "checked", "name", "value" },
 					new String[] { "checkbox", "on", "upnp", "true" }, l10n("enableUPnP"));
-			miscInfoboxContent.addChild("p").addChild("input", new String[] { "type", "checked", "name", "value" },
-					new String[] { "checkbox", "on", "jstun", "true" }, l10n("enableJSTUN"));
+			miscInfoboxContent.addChild("p").addChild("input", new String[] { "type", "name", "value" },
+					new String[] { "checkbox", "jstun", "true" }, l10n("enableJSTUN"));
 
-			miscInfoboxContent.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "miscF", NodeL10n.getBase().getString("FirstTimeWizardToadlet.continue")});
+			miscInfoboxContent.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "miscF", l10n("continue")});
 			miscInfoboxContent.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "cancel", NodeL10n.getBase().getString("Toadlet.cancel")});
 			this.writeHTMLReply(ctx, 200, "OK", pageNode.generate());
 			return;
 		}else if(currentStep == WIZARD_STEP.CONGRATZ) {
-			PageNode page = ctx.getPageMaker().getPageNode(l10n("step7Title"), true, ctx);
+			PageNode page = ctx.getPageMaker().getPageNode(l10n("step7Title"), false, false, ctx);
 			HTMLNode pageNode = page.outer;
 			HTMLNode contentNode = page.content;
 
@@ -510,7 +513,7 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			congratzInfoboxHeader.addChild("#", l10n("congratz"));
 			congratzInfoboxContent.addChild("p", l10n("congratzLong"));
 
-			congratzInfoboxContent.addChild("a", "href", "?step="+WIZARD_STEP.FINAL, NodeL10n.getBase().getString("FirstTimeWizardToadlet.continueEnd"));
+			congratzInfoboxContent.addChild("a", "href", "?step="+WIZARD_STEP.FINAL, l10n("continueEnd"));
 
 			this.writeHTMLReply(ctx, 200, "OK", pageNode.generate());
 			return;
@@ -525,7 +528,7 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			return;
 		}
 
-		PageNode page = ctx.getPageMaker().getPageNode(l10n("homepageTitle"), false, ctx);
+		PageNode page = ctx.getPageMaker().getPageNode(l10n("homepageTitle"), false, false, ctx);
 		HTMLNode pageNode = page.outer;
 		HTMLNode contentNode = page.content;
 
@@ -544,7 +547,17 @@ public class FirstTimeWizardToadlet extends Toadlet {
 		HTMLNode secondParagraph = welcomeInfoboxContent.addChild("p");
 		boolean incognito = request.isParameterSet("incognito");
 		String append = incognito ? "&incognito=true" : "";
-		secondParagraph.addChild("a", "href", "?step="+WIZARD_STEP.BROWSER_WARNING+append).addChild("#", NodeL10n.getBase().getString("FirstTimeWizardToadlet.clickContinue"));
+		secondParagraph.addChild("a", "href", "?step="+WIZARD_STEP.BROWSER_WARNING+append).addChild("#", l10n("clickContinue"));
+
+		HTMLNode languageForm = ctx.addFormChild(secondParagraph, ".", "languageForm");
+		Option language = config.get("node").getOption("l10n");
+		EnumerableOptionCallback l10nCallback = (EnumerableOptionCallback)language.getCallback();
+		HTMLNode dropDown = ConfigToadlet.addComboBox(language.getValueString(), l10nCallback, language.getName(), false);
+		//Submit automatically upon selection if Javascript.
+		dropDown.addAttribute("onchange", "this.form.submit()");
+		languageForm.addChild(dropDown);
+		//Otherwise fall back to submit button if no Javascript
+		languageForm.addChild("noscript").addChild("input", "type", "submit");
 
 		this.writeHTMLReply(ctx, 200, "OK", pageNode.generate());
 	}
@@ -564,7 +577,7 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			return;
 		}
 
-		String passwd = request.getPartAsString("formPassword", 32);
+		String passwd = request.getPartAsStringFailsafe("formPassword", 32);
 		boolean noPassword = (passwd == null) || !passwd.equals(core.formPassword);
 		if(noPassword) {
 			if(logMINOR) Logger.minor(this, "No password ("+passwd+" should be "+core.formPassword+ ')');
@@ -572,20 +585,28 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			return;
 		}
 
-		if(request.isPartSet("security-levels.networkThreatLevel")) {
+		if(request.isPartSet("networkSecurityF")) {
 			// We don't require a confirmation here, since it's one page at a time, so there's less information to
 			// confuse the user, and we don't know whether the node has friends yet etc.
 			// FIXME should we have confirmation here???
-			String networkThreatLevel = request.getPartAsString("security-levels.networkThreatLevel", 128);
+
+			String networkThreatLevel = request.getPartAsStringFailsafe("security-levels.networkThreatLevel", 128);
 			NETWORK_THREAT_LEVEL newThreatLevel = SecurityLevels.parseNetworkThreatLevel(networkThreatLevel);
-			if(newThreatLevel == null) {
-				super.writeTemporaryRedirect(ctx, "step1", TOADLET_URL+"?step="+WIZARD_STEP.SECURITY_NETWORK);
+
+			/*If the user didn't select a network security level before clicking continue or the selected
+			* security level could not be determined, redirect to the same page.*/
+			if(newThreatLevel == null || !request.isPartSet("security-levels.networkThreatLevel")) {
+				//TODO: StringBuilder is not thread-safe but it's faster. Is it okay in this case?
+				StringBuilder redirectTo = new StringBuilder(TOADLET_URL+"?step="+WIZARD_STEP.SECURITY_NETWORK+"&opennet=");
+				//Max length of 5 because 5 letters in false, 4 in true.
+				redirectTo.append(request.getPartAsStringFailsafe("opennet", 5));
+				super.writeTemporaryRedirect(ctx, "step1", redirectTo.toString());
 				return;
 			}
 			if((newThreatLevel == NETWORK_THREAT_LEVEL.MAXIMUM || newThreatLevel == NETWORK_THREAT_LEVEL.HIGH)) {
 				if((!request.isPartSet("security-levels.networkThreatLevel.confirm")) &&
 					(!request.isPartSet("security-levels.networkThreatLevel.tryConfirm"))) {
-					PageNode page = ctx.getPageMaker().getPageNode(l10n("networkSecurityPageTitle"), false, ctx);
+					PageNode page = ctx.getPageMaker().getPageNode(l10n("networkSecurityPageTitle"), false, false, ctx);
 					HTMLNode pageNode = page.outer;
 					HTMLNode content = page.content;
 
@@ -607,7 +628,7 @@ public class FirstTimeWizardToadlet extends Toadlet {
 					}
 					formNode.addChild("input", new String[] { "type", "name", "value" }, new String[] { "hidden", "security-levels.networkThreatLevel.tryConfirm", "on" });
 					formNode.addChild("input", new String[] { "type", "name", "value" }, new String[] { "hidden", "seclevels", "on" });
-					formNode.addChild("input", new String[] { "type", "value" }, new String[] { "submit", l10n("continue")});
+					formNode.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "networkSecurityF", l10n("continue")});
 					writeHTMLReply(ctx, 200, "OK", pageNode.generate());
 					return;
 				} else if((!request.isPartSet("security-levels.networkThreatLevel.confirm")) &&
@@ -620,21 +641,25 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			core.storeConfig();
 			super.writeTemporaryRedirect(ctx, "step1", TOADLET_URL+"?step="+WIZARD_STEP.SECURITY_PHYSICAL);
 			return;
-		} else if(request.isPartSet("security-levels.physicalThreatLevel")) {
+		} else if(request.isPartSet("physicalSecurityF")) {
 			// We don't require a confirmation here, since it's one page at a time, so there's less information to
 			// confuse the user, and we don't know whether the node has friends yet etc.
 			// FIXME should we have confirmation here???
-			String physicalThreatLevel = request.getPartAsString("security-levels.physicalThreatLevel", 128);
+
+			String physicalThreatLevel = request.getPartAsStringFailsafe("security-levels.physicalThreatLevel", 128);
 			PHYSICAL_THREAT_LEVEL oldThreatLevel = core.node.securityLevels.getPhysicalThreatLevel();
 			PHYSICAL_THREAT_LEVEL newThreatLevel = SecurityLevels.parsePhysicalThreatLevel(physicalThreatLevel);
 			if(logMINOR) Logger.minor(this, "Old threat level: "+oldThreatLevel+" new threat level: "+newThreatLevel);
-			if(newThreatLevel == null) {
+
+			/*If the user didn't select a network security level before clicking continue or the selected
+			* security level could not be determined, redirect to the same page.*/
+			if(newThreatLevel == null || !request.isPartSet("security-levels.physicalThreatLevel")) {
 				super.writeTemporaryRedirect(ctx, "step1", TOADLET_URL+"?step="+WIZARD_STEP.SECURITY_PHYSICAL);
 				return;
 			}
 			if(newThreatLevel == PHYSICAL_THREAT_LEVEL.HIGH && oldThreatLevel != newThreatLevel) {
 				// Check for password
-				String pass = request.getPartAsString("masterPassword", SecurityLevelsToadlet.MAX_PASSWORD_LENGTH);
+				String pass = request.getPartAsStringFailsafe("masterPassword", SecurityLevelsToadlet.MAX_PASSWORD_LENGTH);
 				if(pass != null && pass.length() > 0) {
 					try {
 						if(oldThreatLevel == PHYSICAL_THREAT_LEVEL.NORMAL || oldThreatLevel == PHYSICAL_THREAT_LEVEL.LOW)
@@ -645,7 +670,7 @@ public class FirstTimeWizardToadlet extends Toadlet {
 						// Do nothing, already set a password.
 					} catch (MasterKeysWrongPasswordException e) {
 						System.err.println("Wrong password!");
-						PageNode page = ctx.getPageMaker().getPageNode(l10n("passwordPageTitle"), false, ctx);
+						PageNode page = ctx.getPageMaker().getPageNode(l10n("passwordPageTitle"), false, false, ctx);
 						HTMLNode pageNode = page.outer;
 						HTMLNode contentNode = page.content;
 
@@ -665,7 +690,7 @@ public class FirstTimeWizardToadlet extends Toadlet {
 					}
 				} else {
 					// Must set a password!
-					PageNode page = ctx.getPageMaker().getPageNode(l10n("passwordPageTitle"), false, ctx);
+					PageNode page = ctx.getPageMaker().getPageNode(l10n("passwordPageTitle"), false, false, ctx);
 					HTMLNode pageNode = page.outer;
 					HTMLNode contentNode = page.content;
 
@@ -688,7 +713,7 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			if((newThreatLevel == PHYSICAL_THREAT_LEVEL.LOW || newThreatLevel == PHYSICAL_THREAT_LEVEL.NORMAL) &&
 					oldThreatLevel == PHYSICAL_THREAT_LEVEL.HIGH) {
 				// Check for password
-				String pass = request.getPartAsString("masterPassword", SecurityLevelsToadlet.MAX_PASSWORD_LENGTH);
+				String pass = request.getPartAsStringFailsafe("masterPassword", SecurityLevelsToadlet.MAX_PASSWORD_LENGTH);
 				if(pass != null && pass.length() > 0) {
 					// This is actually the OLD password ...
 					try {
@@ -712,7 +737,7 @@ public class FirstTimeWizardToadlet extends Toadlet {
 						}
 					} catch (MasterKeysWrongPasswordException e) {
 						System.err.println("Wrong password!");
-						PageNode page = ctx.getPageMaker().getPageNode(l10n("passwordForDecryptTitle"), false, ctx);
+						PageNode page = ctx.getPageMaker().getPageNode(l10n("passwordForDecryptTitle"), false, false, ctx);
 						HTMLNode pageNode = page.outer;
 						HTMLNode contentNode = page.content;
 
@@ -734,7 +759,7 @@ public class FirstTimeWizardToadlet extends Toadlet {
 					}
 				} else if(core.node.getMasterPasswordFile().exists()) {
 					// We need the old password
-					PageNode page = ctx.getPageMaker().getPageNode(l10n("passwordForDecryptTitle"), false, ctx);
+					PageNode page = ctx.getPageMaker().getPageNode(l10n("passwordForDecryptTitle"), false, false, ctx);
 					HTMLNode pageNode = page.outer;
 					HTMLNode contentNode = page.content;
 
@@ -777,7 +802,7 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			super.writeTemporaryRedirect(ctx, "step1", TOADLET_URL+"?step="+WIZARD_STEP.NAME_SELECTION+"&opennet="+core.node.isOpennetEnabled());
 			return;
 		} else if(request.isPartSet("nnameF")) {
-			String selectedNName = request.getPartAsString("nname", 128);
+			String selectedNName = request.getPartAsStringFailsafe("nname", 128);
 			try {
 				config.get("node").set("name", selectedNName);
 				Logger.normal(this, "The node name has been set to "+ selectedNName);
@@ -787,16 +812,16 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			super.writeTemporaryRedirect(ctx, "step3", TOADLET_URL+"?step="+WIZARD_STEP.BANDWIDTH);
 			return;
 		} else if(request.isPartSet("bwF")) {
-			_setUpstreamBandwidthLimit(request.getPartAsString("bw", 20)); // drop down options may be 6 chars or less, but formatted ones e.g. old value if re-running can be more
+			_setUpstreamBandwidthLimit(request.getPartAsStringFailsafe("bw", 20)); // drop down options may be 6 chars or less, but formatted ones e.g. old value if re-running can be more
 			super.writeTemporaryRedirect(ctx, "step4", TOADLET_URL+"?step="+WIZARD_STEP.DATASTORE_SIZE);
 			return;
 		} else if(request.isPartSet("dsF")) {
-			_setDatastoreSize(request.getPartAsString("ds", 20)); // drop down options may be 6 chars or less, but formatted ones e.g. old value if re-running can be more
+			_setDatastoreSize(request.getPartAsStringFailsafe("ds", 20)); // drop down options may be 6 chars or less, but formatted ones e.g. old value if re-running can be more
 			super.writeTemporaryRedirect(ctx, "step5", TOADLET_URL+"?step="+WIZARD_STEP.CONGRATZ);
 			return;
 		} else if(request.isPartSet("miscF")) {
 			try {
-				config.get("node.updater").set("autoupdate", Boolean.parseBoolean(request.getPartAsString("autodeploy", 10)));
+				config.get("node.updater").set("autoupdate", Boolean.parseBoolean(request.getPartAsStringFailsafe("autodeploy", 10)));
 			} catch (ConfigException e) {
 				Logger.error(this, "Should not happen, please report!" + e, e);
 			}
@@ -838,6 +863,20 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			super.writeTemporaryRedirect(ctx, "step7", TOADLET_URL+"?step="+WIZARD_STEP.OPENNET);
 			return;
 
+		}
+
+		//The user changed their language on the welcome page. Change the language and rerender the page.
+		if (request.isPartSet("l10n")) {
+			String desiredLanguage = request.getPartAsStringFailsafe("l10n", 4096);
+			try {
+				config.get("node").set("l10n", desiredLanguage);
+			} catch (freenet.config.InvalidConfigValueException e) {
+				Logger.error(this, "Failed to set language to "+desiredLanguage+". "+e);
+			} catch (freenet.config.NodeNeedRestartException e) {
+				//Changing language doesn't require a restart, at least as of version 1385.
+				//Doing so would be really annoying as the node would have to start up again
+				//which could be very slow.
+			}
 		}
 
 		super.writeTemporaryRedirect(ctx, "invalid/unhandled data", TOADLET_URL);

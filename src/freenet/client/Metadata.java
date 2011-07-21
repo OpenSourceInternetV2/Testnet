@@ -639,6 +639,13 @@ public class Metadata implements Cloneable {
 			byte[] buf = new byte[len];
 			dis.readFully(buf);
 			targetName = new String(buf, "UTF-8");
+			while(true) {
+				if(targetName.isEmpty()) throw new MetadataParseException("Invalid target name is empty: \""+new String(buf, "UTF-8")+"\"");
+				if(targetName.charAt(0) == '/') {
+					targetName = targetName.substring(1);
+					continue;
+				} else break;
+			}
 			if(logMINOR) Logger.minor(this, "Archive and/or internal redirect: "+targetName+" ("+len+ ')');
 		}
 	}
@@ -867,6 +874,14 @@ public class Metadata implements Cloneable {
 			if(cm != null)
 				this.setMIMEType(cm.getMIMEType());
 			targetName = arg;
+			while(true) {
+				if(targetName.isEmpty()) throw new IllegalArgumentException("Invalid target name is empty: \""+arg+"\"");
+				if(targetName.charAt(0) == '/') {
+					targetName = targetName.substring(1);
+					Logger.error(this, "Stripped initial slash from archive internal redirect on creating metadata: \""+arg+"\"", new Exception("debug"));
+					continue;
+				} else break;
+			}
 		} else
 			throw new IllegalArgumentException();
 		hashes = null;
@@ -889,6 +904,14 @@ public class Metadata implements Cloneable {
 		if(docType == ARCHIVE_METADATA_REDIRECT) {
 			documentType = docType;
 			targetName = name;
+			while(true) {
+				if(targetName.isEmpty()) throw new IllegalArgumentException("Invalid target name is empty: \""+name+"\"");
+				if(targetName.charAt(0) == '/') {
+					targetName = targetName.substring(1);
+					Logger.error(this, "Stripped initial slash from archive internal redirect on creating metadata: \""+name+"\"", new Exception("debug"));
+					continue;
+				} else break;
+			}
 		} else
 			throw new IllegalArgumentException();
 		hashes = null;
