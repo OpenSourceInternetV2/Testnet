@@ -514,7 +514,6 @@ public class PproxyToadlet extends Toadlet {
 		p.addChild("#", " " + l10n("pluginSourceChoice"));
 		
 		boolean loadFromWeb = pm.loadOfficialPluginsFromWeb();
-		if(Node.isTestnetEnabled()) loadFromWeb = true;
 		
 		HTMLNode input = addOfficialForm.addChild("input", new String[] { "type", "name", "value" },
 				new String[] { "radio", "pluginSource", "freenet" });
