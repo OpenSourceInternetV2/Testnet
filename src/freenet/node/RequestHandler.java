@@ -15,6 +15,8 @@ import freenet.io.comm.ReferenceSignatureVerificationException;
 import freenet.io.xfer.BlockTransmitter;
 import freenet.io.xfer.BlockTransmitter.BlockTransmitterCompletion;
 import freenet.io.xfer.BlockTransmitter.ReceiverAbortHandler;
+import freenet.io.xfer.BulkTransmitter;
+import freenet.io.xfer.BulkTransmitter.AllSentCallback;
 import freenet.io.xfer.PartiallyReceivedBlock;
 import freenet.io.xfer.WaitedTooLongException;
 import freenet.keys.CHKBlock;
@@ -508,7 +510,23 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 			public void finish(boolean success) {
 				sentPayload(data.length); // FIXME report this at the time when that message is acked for more accurate reporting???
 				applyByteCounts();
+				// Will call unlockHandler.
+				// This is okay, it can be called twice safely, and it ensures that even if sent() is not called it will still be unlocked.
 				unregisterRequestHandlerWithNode();
+			}
+			@Override
+			void sent(boolean success) {
+				// As soon as the originator receives the messages, he can reuse the slot.
+				// Unlocking on sent is a reasonable compromise between:
+				// 1. Unlocking immediately avoids problems with the recipient reusing the slot when he's received the data, therefore us rejecting the request and getting a mandatory backoff, and
+				// 2. However, we do want SSK requests from the datastore to be counted towards the total when accepting requests.
+				// This is safe however.
+				// We have already done the request so there is no outgoing request.
+				// A node might be able to get a few more slots in flight by not acking the SSK messages, but it would quickly stall.
+				// Furthermore, we would start sending hard rejections when the send queue gets past a certain point.
+				// So it is neither beneficial for the node nor a viable DoS.
+				// Alternative solution would be to wait until the pubkey and data have been acked before unlocking and sending the headers, but this appears not to be necessary.
+				tag.unlockHandler();
 			}
 		};
 		Message headersMsg = DMT.createFNPSSKDataFoundHeaders(uid, headers, realTimeFlag);
@@ -651,6 +669,10 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 		else
 			sendTerminalCalled = true;
 
+		// Unlock handler immediately.
+		// Otherwise the request sender will think the slot is free as soon as it
+		// receives it, but we won't, so we may reject his requests and get a mandatory backoff.
+		tag.unlockHandler();
 		try {
 			source.sendAsync(msg, new TerminalMessageByteCountCollector(), this);
 		} catch (NotConnectedException e) {
@@ -876,6 +898,8 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 		
 		// We do not need to worry about timeouts here, because we have already sent our noderef.
 		
+		// We have sent a noderef. Therefore we must unlock, not ack.
+		
 		OpennetManager.waitForOpennetNoderef(true, source, uid, this, new NoderefCallback() {
 
 			@Override
@@ -883,22 +907,40 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 				
 				if(newNoderef == null) {
 					// Already sent a ref, no way to tell upstream that we didn't receive one. :(
+					tag.unlockHandler();
 				} else {
 					
 					// Send it forward to the data source, if it is valid.
 					
-					if(OpennetManager.validateNoderef(newNoderef, 0, newNoderef.length, source, false) != null)
+					if(OpennetManager.validateNoderef(newNoderef, 0, newNoderef.length, source, false) != null) {
 						try {
-							om.sendOpennetRef(true, uid, dataSource, newNoderef, RequestHandler.this);
+							if(logMINOR) Logger.minor(this, "Relaying noderef from source to data source");
+							om.sendOpennetRef(true, uid, dataSource, newNoderef, RequestHandler.this, new AllSentCallback() {
+
+								@Override
+								public void allSent(
+										BulkTransmitter bulkTransmitter,
+										boolean anyFailed) {
+									// As soon as the originator receives the three blocks, he can reuse the slot.
+									tag.unlockHandler();
+									applyByteCounts();
+									// Note that sendOpennetRef() does not wait for an acknowledgement or even for the blocks to have been sent!
+									// So this will be called well after gotNoderef() exits.
+								}
+								
+							});
 						} catch(NotConnectedException e) {
 							// How sad
+							tag.unlockHandler();
+							applyByteCounts();
 						}
+					} else {
+						tag.unlockHandler();
+						applyByteCounts();
+					}
 				}
 				
-				// We have sent a noderef. It is not appropriate for the caller to call ackOpennet():
-				// in all cases he should unlock.
-				applyByteCounts();
-				unregisterRequestHandlerWithNode();
+				node.removeTransferringRequestHandler(uid);
 			}
 
 			@Override
@@ -912,7 +954,6 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 			}
 			
 		}, node);
-
 
 	}
 	private int sentBytes;

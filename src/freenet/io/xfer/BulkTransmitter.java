@@ -28,11 +28,18 @@ import freenet.support.Logger.LogLevel;
  * @author toad
  */
 public class BulkTransmitter {
+	
+	public interface AllSentCallback {
+
+		void allSent(BulkTransmitter bulkTransmitter, boolean anyFailed);
+		
+	}
 
 	/** If no packets sent in this period, and no completion acknowledgement / cancellation, assume failure. */
 	static final int TIMEOUT = 5*60*1000;
 	/** Time to hang around listening for the last FNPBulkReceivedAll message */
 	static final int FINAL_ACK_TIMEOUT = 10*1000;
+	final AllSentCallback allSentCallback;
 	/** Available blocks */
 	final PartiallyReceivedBulk prb;
 	/** Peer who we are sending the data to */
@@ -66,6 +73,11 @@ public class BulkTransmitter {
 			}
 		});
 	}
+	
+	public BulkTransmitter(PartiallyReceivedBulk prb, PeerContext peer, long uid, boolean noWait, ByteCounter ctr, boolean realTime) throws DisconnectedException {
+		this(prb, peer, uid, noWait, ctr, realTime, null);
+	}
+	
 	/**
 	 * Create a bulk data transmitter.
 	 * @param prb The PartiallyReceivedBulk containing the file we want to send, or the part of it that we have so far.
@@ -75,13 +87,14 @@ public class BulkTransmitter {
 	 * @param noWait If true, don't wait for an FNPBulkReceivedAll, return as soon as we've sent everything.
 	 * @throws DisconnectedException If the peer we are trying to send to becomes disconnected.
 	 */
-	public BulkTransmitter(PartiallyReceivedBulk prb, PeerContext peer, long uid, boolean noWait, ByteCounter ctr, boolean realTime) throws DisconnectedException {
+	public BulkTransmitter(PartiallyReceivedBulk prb, PeerContext peer, long uid, boolean noWait, ByteCounter ctr, boolean realTime, AllSentCallback cb) throws DisconnectedException {
 		this.prb = prb;
 		this.peer = peer;
 		this.uid = uid;
 		this.noWait = noWait;
 		this.ctr = ctr;
 		this.realTime = realTime;
+		this.allSentCallback = cb;
 		if(ctr == null) throw new NullPointerException();
 		peerBootID = peer.getBootID();
 		// Need to sync on prb while doing both operations, to avoid race condition.
@@ -125,6 +138,8 @@ public class BulkTransmitter {
 					new AsyncMessageFilterCallback() {
 						@Override
 						public void onMatched(Message m) {
+							// send() will terminate, so must call setAllQueued().
+							setAllQueued();
 							completed();
 						}
 						@Override
@@ -203,6 +218,9 @@ public class BulkTransmitter {
 		synchronized(BulkTransmitter.class) {
 			transfersCompleted++;
 		}
+		// Call AllSentCallback if necessary.
+		// If there are packets still waiting, it will be called after they are sent or failed.
+		setAllQueued();
 	}
 
 	/** Like cancel(), but without the negative overtones: The client says it's got everything,
@@ -219,6 +237,7 @@ public class BulkTransmitter {
 			transfersCompleted++;
 			transfersSucceeded++;
 		}
+		if(logMINOR) Logger.minor(this, "Completed transfer successfully "+this);
 	}
 	
 	/**
@@ -258,6 +277,7 @@ outer:	while(true) {
 				blockNo = blocksNotSentButPresent.firstOne();
 			}
 			if(blockNo < 0) {
+				setAllQueued();
 				if(noWait && prb.hasWholeFile()) {
 					completed();
 					return true;
@@ -355,18 +375,40 @@ outer:	while(true) {
 		}
 	}
 	
+	private void setAllQueued() {
+		if(allSentCallback != null) {
+			boolean callAllSent = false;
+			boolean anyFailed = false;
+			synchronized(this) {
+				allQueued = true;
+				if(unsentPackets == 0 && !calledAllSent) {
+					if(logMINOR) Logger.minor(this, "Calling all sent callback on "+this);
+					callAllSent = true;
+					calledAllSent = true;
+					anyFailed = failedPacket;
+				}
+			}
+			if(callAllSent)
+				allSentCallback.allSent(this, anyFailed);
+		}
+	}
 	private int inFlightPackets = 0;
+	private int unsentPackets = 0;
 	private boolean failedPacket = false;
+	private boolean allQueued = false;
+	private boolean calledAllSent = false;
 	
 	private class UnsentPacketTag implements AsyncMessageCallback {
 
 		private boolean finished;
+		private boolean sent;
 		private final boolean isOldFNP;
 		
 		private UnsentPacketTag(boolean isOldFNP) {
 			this.isOldFNP = isOldFNP;
 			synchronized(BulkTransmitter.this) {
 				inFlightPackets++;
+				unsentPackets++;
 			}
 		}
 		
@@ -403,6 +445,7 @@ outer:	while(true) {
 					if(logMINOR) Logger.minor(this, "Packet sent "+BulkTransmitter.this+" remaining in flight: "+inFlightPackets);
 				}
 			}
+			sent();
 		}
 
 		@Override
@@ -417,7 +460,24 @@ outer:	while(true) {
 
 		@Override
 		public void sent() {
-			// Wait for acknowledgment
+			if(allSentCallback == null) return;
+			synchronized(this) {
+				if(finished) return;
+				if(sent) return;
+				sent = true;
+				notifyAll();
+			}
+			boolean anyFailed;
+			synchronized(BulkTransmitter.this) {
+				unsentPackets--;
+				if(unsentPackets > 0) return;
+				if(!allQueued) return;
+				if(calledAllSent) return;
+				calledAllSent = true;
+				anyFailed = failedPacket;
+			}
+			if(logMINOR) Logger.minor(this, "Calling all sent callback on "+this);
+			allSentCallback.allSent(BulkTransmitter.this, anyFailed);
 		}
 		
 	}
