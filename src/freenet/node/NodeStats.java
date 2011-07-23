@@ -1105,6 +1105,8 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 		}
 	}
 	
+	private final Object serializeShouldRejectRequest = new Object();
+	
 	/** Should a request be accepted by this node, based on its local capacity?
 	 * This includes thread limits and ping times, but more importantly, 
 	 * mechanisms based on predicting worst case bandwidth usage for all running
@@ -1142,7 +1144,10 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 	 * separately.
 	 * @return The reason for rejecting it, or null to accept it.
 	 */
-	public RejectReason shouldRejectRequest(boolean canAcceptAnyway, boolean isInsert, boolean isSSK, boolean isLocal, boolean isOfferReply, PeerNode source, boolean hasInStore, boolean preferInsert, boolean realTimeFlag) {
+	public RejectReason shouldRejectRequest(boolean canAcceptAnyway, boolean isInsert, boolean isSSK, boolean isLocal, boolean isOfferReply, PeerNode source, boolean hasInStore, boolean preferInsert, boolean realTimeFlag, UIDTag tag) {
+		// Serialise shouldRejectRequest.
+		// It's not always called on the same thread, and things could be problematic if they interfere with each other.
+		synchronized(serializeShouldRejectRequest) {
 		if(logMINOR) dumpByteCostAverages();
 
 		if(source != null) {
@@ -1204,11 +1209,7 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 		/** Requests running, globally */
 		RunningRequestsSnapshot requestsSnapshot = new RunningRequestsSnapshot(node, ignoreLocalVsRemoteBandwidthLiability, transfersPerInsert, realTimeFlag);
 		
-		if(!isLocal) {
-			// If not local, is already locked.
-			// But if it is local, it's not already locked.
-			requestsSnapshot.decrement(isSSK, isInsert, isOfferReply, transfersPerInsert, hasInStore);
-		}
+		// Don't need to decrement because it won't be counted until setAccepted() below.
 
 		if(logMINOR)
 			requestsSnapshot.log();
@@ -1240,11 +1241,6 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 		
 		/** Requests running for this specific peer (local counts as a peer) */
 		RunningRequestsSnapshot peerRequestsSnapshot = new RunningRequestsSnapshot(node, source, false, ignoreLocalVsRemoteBandwidthLiability, transfersPerInsert, realTimeFlag);
-		
-		if(source != null) {
-			peerRequestsSnapshot.decrement(isSSK, isInsert, isOfferReply, transfersPerInsert, hasInStore);
-		}
-		
 		
 		// Check bandwidth-based limits, with fair sharing.
 		
@@ -1306,8 +1302,11 @@ public class NodeStats implements Persistable, BlockTimeCallback {
 		
 		pInstantRejectIncoming.report(0.0);
 
+		if(tag != null) tag.setAccepted();
+		
 		// Accept
 		return null;
+		}
 	}
 	
 	public int calculateMaxTransfersOut(PeerNode peer, boolean realTime,

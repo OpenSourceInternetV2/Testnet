@@ -31,6 +31,7 @@ public abstract class UIDTag {
 	private final WeakReference<PeerNode> sourceRef;
 	final boolean realTimeFlag;
 	private final Node node;
+	protected boolean accepted;
 	
 	/** Nodes we have routed to at some point */
 	private HashSet<PeerNode> routedTo = null;
@@ -59,6 +60,7 @@ public abstract class UIDTag {
 		this.uid = uid;
 		if(logMINOR)
 			Logger.minor(this, "Created "+this);
+		if(wasLocal) accepted = true; // FIXME remove, but it's always true at the moment.
 	}
 
 	public abstract void logStillPresent(Long uid);
@@ -364,6 +366,10 @@ public abstract class UIDTag {
 			}
 			logStillPresent(uid);
 		}
+	}
+
+	public synchronized void setAccepted() {
+		accepted = true;
 	}
 
 }

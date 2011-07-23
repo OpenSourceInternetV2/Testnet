@@ -73,7 +73,6 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
     
     // Basics
     final RequestTag origTag;
-    final Node node;
     private PartiallyReceivedBlock prb;
     private byte[] finalHeaders;
     private byte[] finalSskData;
@@ -175,7 +174,6 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
     	}
         this.pubKey = pubKey;
         this.origTag = tag;
-        this.node = n;
         this.tryOffersOnly = offersOnly;
         this.canWriteClientCache = canWriteClientCache;
         this.canWriteDatastore = canWriteDatastore;
@@ -267,51 +265,54 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
     /** Route requests. Method is responsible for its own completion, e.g. finish
      * or chaining to MainLoopCallback, i.e. the caller isn't going to do more 
      * stuff relevant to the request afterwards. */
-    private void routeRequests() {
-    	
-    	boolean newLoadManagement = node.enableNewLoadManagement(realTimeFlag);
+    protected void routeRequests() {
     	
     	PeerNode next = null;
     	
         peerLoop:
         while(true) {
             boolean canWriteStorePrev = node.canWriteDatastoreInsert(htl);
-            // FIXME SECURITY/NETWORK: Should we never decrement on the originator?
-            // It would buy us another hop of no-cache, making it significantly
-            // harder to trace after the fact; however it would make local 
-            // requests fractionally easier to detect by peers.
-            // IMHO local requests are so easy for peers to detect anyway that
-            // it's probably worth it.
-            // Currently the worst case is we don't cache on the originator
-            // and we don't cache on the first peer we route to. If we get
-            // RejectedOverload's etc we won't cache on them either, up to 5;
-            // but lets assume that one of them accepts, and routes onward;
-            // the *second* hop out (with the originator being 0) WILL cache.
-            // Note also that changing this will have a performance impact.
-            if((!starting) && (!canWriteStorePrev)) {
-            	// We always decrement on starting a sender.
-            	// However, after that, if our HTL is above the no-cache threshold,
-            	// we do not want to decrement the HTL for trivial rejections (e.g. RejectedLoop),
-            	// because we would end up caching data too close to the originator.
-            	// So allow 5 failures and then RNF.
-            	if(highHTLFailureCount++ >= MAX_HIGH_HTL_FAILURES) {
-            		if(logMINOR) Logger.minor(this, "Too many failures at non-cacheable HTL");
-            		finish(ROUTE_NOT_FOUND, null, false);
-            		return;
-            	}
-            	if(logMINOR) Logger.minor(this, "Allowing failure "+highHTLFailureCount+" htl is still "+htl);
+            if(dontDecrementHTLThisTime) {
+            	// NLM needs us to reroute.
+            	dontDecrementHTLThisTime = false;
             } else {
-            	/*
-            	 * If we haven't routed to any node yet, decrement according to the source.
-            	 * If we have, decrement according to the node which just failed.
-            	 * Because:
-            	 * 1) If we always decrement according to source then we can be at max or min HTL
-            	 * for a long time while we visit *every* peer node. This is BAD!
-            	 * 2) The node which just failed can be seen as the requestor for our purposes.
-            	 */
-            	// Decrement at this point so we can DNF immediately on reaching HTL 0.
-            	htl = node.decrementHTL((hasForwarded ? next : source), htl);
-            	if(logMINOR) Logger.minor(this, "Decremented HTL to "+htl);
+            	// FIXME SECURITY/NETWORK: Should we never decrement on the originator?
+            	// It would buy us another hop of no-cache, making it significantly
+            	// harder to trace after the fact; however it would make local 
+            	// requests fractionally easier to detect by peers.
+            	// IMHO local requests are so easy for peers to detect anyway that
+            	// it's probably worth it.
+            	// Currently the worst case is we don't cache on the originator
+            	// and we don't cache on the first peer we route to. If we get
+            	// RejectedOverload's etc we won't cache on them either, up to 5;
+            	// but lets assume that one of them accepts, and routes onward;
+            	// the *second* hop out (with the originator being 0) WILL cache.
+            	// Note also that changing this will have a performance impact.
+            	if((!starting) && (!canWriteStorePrev)) {
+            		// We always decrement on starting a sender.
+            		// However, after that, if our HTL is above the no-cache threshold,
+            		// we do not want to decrement the HTL for trivial rejections (e.g. RejectedLoop),
+            		// because we would end up caching data too close to the originator.
+            		// So allow 5 failures and then RNF.
+            		if(highHTLFailureCount++ >= MAX_HIGH_HTL_FAILURES) {
+            			if(logMINOR) Logger.minor(this, "Too many failures at non-cacheable HTL");
+            			finish(ROUTE_NOT_FOUND, null, false);
+            			return;
+            		}
+            		if(logMINOR) Logger.minor(this, "Allowing failure "+highHTLFailureCount+" htl is still "+htl);
+            	} else {
+            		/*
+            		 * If we haven't routed to any node yet, decrement according to the source.
+            		 * If we have, decrement according to the node which just failed.
+            		 * Because:
+            		 * 1) If we always decrement according to source then we can be at max or min HTL
+            		 * for a long time while we visit *every* peer node. This is BAD!
+            		 * 2) The node which just failed can be seen as the requestor for our purposes.
+            		 */
+            		// Decrement at this point so we can DNF immediately on reaching HTL 0.
+            		htl = node.decrementHTL((hasForwarded ? next : source), htl);
+            		if(logMINOR) Logger.minor(this, "Decremented HTL to "+htl);
+            	}
             }
             starting = false;
 
@@ -385,14 +386,11 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
                 return;
             }
             
-            if(newLoadManagement ? 
-            		innerRouteRequestsNew(next, origTag) : innerRouteRequestsOld(next, origTag))
-            	continue peerLoop;
-            else
-            	return;
+            innerRouteRequests(next, origTag);
+            // Will either chain back to routeRequests(), or call onAccepted().
+           	return;
         }
 	}
-    
     
 	private synchronized int timeSinceSentForTimeout() {
     	int time = timeSinceSent();
@@ -2016,11 +2014,6 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
 		return transferCoalesced;
 	}
 	
-	protected void rnf() {
-		finish(ROUTE_NOT_FOUND, null, false);
-		node.failureTable.onFinalFailure(key, null, htl, origHTL, -1, -1, source);
-	}
-	
 	protected void onAccepted(PeerNode next) {
         synchronized(this) {
         	receivingAsync = true;
@@ -2055,7 +2048,7 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
 		if(logMINOR) {
 			if(source != null)
 				Logger.minor(this, "Timed out while waiting for a slot, period = "+period+" because average reject proportion for peers is "+load+" on "+this);
-			else if(logMINOR)
+			else
 				Logger.minor(this, "Local request timed out while waiting for a slot, period = "+period+" because average reject proportion for peers is "+load+" on "+this);
 		}
     	synchronized(this) {
@@ -2063,6 +2056,67 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
     	}
     	finish(RECENTLY_FAILED, null, false);
         node.failureTable.onFinalFailure(key, null, htl, origHTL, -1, -1, source);
+	}
+
+	@Override
+	protected boolean isInsert() {
+		return false;
+	}
+
+	@Override
+	protected void handleAcceptedRejectedTimeout(final PeerNode next,
+			final UIDTag origTag) {
+		
+		origTag.handlingTimeout(next);
+		
+		int timeout = 60*1000;
+		
+		MessageFilter mf = makeAcceptedRejectedFilter(next, timeout);
+		try {
+			node.usm.addAsyncFilter(mf, new SlowAsyncMessageFilterCallback() {
+
+				@Override
+				public void onMatched(Message m) {
+					if(m.getSpec() == DMT.FNPRejectedLoop ||
+							m.getSpec() == DMT.FNPRejectedOverload) {
+						// Ok.
+						next.noLongerRoutingTo(origTag, false);
+					} else {
+						// Accepted. May as well wait for the data, if any.
+						onAccepted(next);
+					}
+				}
+				
+				@Override
+				public boolean shouldTimeout() {
+					return false;
+				}
+
+				@Override
+				public void onTimeout() {
+					Logger.error(this, "Fatal timeout waiting for Accepted/Rejected from "+next+" on "+RequestSender.this);
+					next.fatalTimeout(origTag, false);
+				}
+
+				@Override
+				public void onDisconnect(PeerContext ctx) {
+					next.noLongerRoutingTo(origTag, false);
+				}
+
+				@Override
+				public void onRestarted(PeerContext ctx) {
+					next.noLongerRoutingTo(origTag, false);
+				}
+
+				@Override
+				public int getPriority() {
+					return NativeThread.NORM_PRIORITY;
+				}
+				
+			}, this);
+		} catch (DisconnectedException e) {
+			next.noLongerRoutingTo(origTag, false);
+		}
 	}
 
 }
