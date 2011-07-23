@@ -300,7 +300,6 @@ public final class CHKInsertSender extends BaseSender implements PrioRunnable, A
     private final boolean preferInsert;
     private final boolean ignoreLowBackoff;
     private final boolean realTimeFlag;
-    private HashSet<PeerNode> nodesRoutedTo = new HashSet<PeerNode>();
 
     
     /** List of nodes we are waiting for either a transfer completion
@@ -1283,6 +1282,7 @@ public final class CHKInsertSender extends BaseSender implements PrioRunnable, A
 				return;
 			}
 		}
+		routeRequests();
 	}
 
 	@Override
