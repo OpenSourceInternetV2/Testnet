@@ -225,6 +225,12 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 
 	@Override
 	public void onCHKTransferBegins() {
+		if(tag.hasSourceRestarted()) {
+			Logger.normal(this, "requestor is gone, can't send terminal message");
+			applyByteCounts();
+			unregisterRequestHandlerWithNode();
+			return;
+		}
 		if(logMINOR) Logger.minor(this, "CHK transfer start on "+this);
 		try {
 			// Is a CHK.
@@ -367,12 +373,21 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 			return false;
 		}
 		waitingForTransferSuccess = true;
-		if(!transferCompleted) return false; // Wait
+		if(!transferCompleted) {
+			if(logMINOR) Logger.minor(this, "Waiting for transfer to finish on "+this);
+			return false; // Wait
+		}
 		return true;
 	}
 
 	@Override
 	public void onRequestSenderFinished(int status, boolean fromOfferedKey) {
+		if(tag.hasSourceRestarted()) {
+			Logger.normal(this, "requestor is gone, can't send terminal message");
+			applyByteCounts();
+			unregisterRequestHandlerWithNode();
+			return;
+		}
 		if(logMINOR) Logger.minor(this, "onRequestSenderFinished("+status+") on "+this);
 		long now = System.currentTimeMillis();
 
@@ -494,7 +509,7 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 		}
 		if(disconn)
 			unregisterRequestHandlerWithNode();
-		else if(disconn)
+		else if(reject != null)
 			sendTerminal(reject);
 		else if(xferFinished)
 			transferFinished(xferSuccess);
@@ -914,7 +929,7 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 					
 					if(OpennetManager.validateNoderef(newNoderef, 0, newNoderef.length, source, false) != null) {
 						try {
-							if(logMINOR) Logger.minor(this, "Relaying noderef from source to data source");
+							if(logMINOR) Logger.minor(this, "Relaying noderef from source to data source for "+RequestHandler.this);
 							om.sendOpennetRef(true, uid, dataSource, newNoderef, RequestHandler.this, new AllSentCallback() {
 
 								@Override

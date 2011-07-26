@@ -32,6 +32,7 @@ public abstract class UIDTag {
 	final boolean realTimeFlag;
 	private final Node node;
 	protected boolean accepted;
+	protected boolean sourceRestarted;
 	
 	/** Nodes we have routed to at some point */
 	private HashSet<PeerNode> routedTo = null;
@@ -47,7 +48,7 @@ public abstract class UIDTag {
 	protected boolean notRoutedOnwards;
 	final long uid;
 	
-	private boolean unlockedHandler;
+	protected boolean unlockedHandler;
 	protected boolean noRecordUnlock;
 	private boolean hasUnlocked;
 	
@@ -186,10 +187,26 @@ public abstract class UIDTag {
 			for(PeerNode p : peers)
 				p.postUnlock(this);
 	}
+
+	/** Add up the expected transfers in.
+	 * @param ignoreLocalVsRemote If true, pretend that the request is remote even if it's local.
+	 * @param outwardTransfersPerInsert Expected number of outward transfers for an insert.
+	 * @param forAccept If true, we are deciding whether to accept a request.
+	 * If false, we are deciding whether to SEND a request. We need to be more
+	 * careful for the latter than the former, to avoid unnecessary rejections 
+	 * and mandatory backoffs.
+	 */
+	public abstract int expectedTransfersIn(boolean ignoreLocalVsRemote, int outwardTransfersPerInsert, boolean forAccept);
 	
-	public abstract int expectedTransfersIn(boolean ignoreLocalVsRemote, int outwardTransfersPerInsert);
-	
-	public abstract int expectedTransfersOut(boolean ignoreLocalVsRemote, int outwardTransfersPerInsert);
+	/** Add up the expected transfers out.
+	 * @param ignoreLocalVsRemote If true, pretend that the request is remote even if it's local.
+	 * @param outwardTransfersPerInsert Expected number of outward transfers for an insert.
+	 * @param forAccept If true, we are deciding whether to accept a request.
+	 * If false, we are deciding whether to SEND a request. We need to be more
+	 * careful for the latter than the former, to avoid unnecessary rejections 
+	 * and mandatory backoffs.
+	 */
+	public abstract int expectedTransfersOut(boolean ignoreLocalVsRemote, int outwardTransfersPerInsert, boolean forAccept);
 	
 	public synchronized void setNotRoutedOnwards() {
 		this.notRoutedOnwards = true;
@@ -370,6 +387,21 @@ public abstract class UIDTag {
 
 	public synchronized void setAccepted() {
 		accepted = true;
+	}
+
+	public synchronized void onRestartOrDisconnectSource() {
+		sourceRestarted = true;
+	}
+	
+	public synchronized boolean hasSourceRestarted() {
+		return sourceRestarted;
+	}
+
+	public synchronized boolean isSource(PeerNode pn) {
+		if(reassigned) return false;
+		if(wasLocal) return false;
+		if(sourceRef == null) return false;
+		return sourceRef == pn.myRef;
 	}
 
 }

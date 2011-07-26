@@ -356,12 +356,12 @@ outer:	while(true) {
 			} catch (NotConnectedException e) {
 				cancel("Disconnected");
 				if(logMINOR)
-					Logger.minor(this, "Canclled: not connected "+this);
+					Logger.minor(this, "Cancelled: not connected "+this);
 				return false;
 			} catch (PeerRestartedException e) {
 				cancel("PeerRestarted");
 				if(logMINOR)
-					Logger.minor(this, "Canclled: not connected "+this);
+					Logger.minor(this, "Cancelled: not connected "+this);
 				return false;
 			} catch (WaitedTooLongException e) {
 				long rtt = peer.getOldThrottle().getRoundTripTime();
@@ -386,6 +386,8 @@ outer:	while(true) {
 					callAllSent = true;
 					calledAllSent = true;
 					anyFailed = failedPacket;
+				} else if(!calledAllSent) {
+					if(logMINOR) Logger.minor(this, "Still waiting for "+unsentPackets);
 				}
 			}
 			if(callAllSent)
@@ -433,7 +435,8 @@ outer:	while(true) {
 				finished = true;
 				notifyAll();
 			}
-			ctr.sentPayload(prb.blockSize);
+			if(!failed)
+				ctr.sentPayload(prb.blockSize);
 			synchronized(BulkTransmitter.this) {
 				if(failed) {
 					failedPacket = true;
@@ -445,7 +448,7 @@ outer:	while(true) {
 					if(logMINOR) Logger.minor(this, "Packet sent "+BulkTransmitter.this+" remaining in flight: "+inFlightPackets);
 				}
 			}
-			sent();
+			sent(true);
 		}
 
 		@Override
@@ -460,9 +463,13 @@ outer:	while(true) {
 
 		@Override
 		public void sent() {
+			sent(false);
+		}
+		
+		public void sent(boolean ignoreFinished) {
 			if(allSentCallback == null) return;
 			synchronized(this) {
-				if(finished) return;
+				if(finished && !ignoreFinished) return;
 				if(sent) return;
 				sent = true;
 				notifyAll();

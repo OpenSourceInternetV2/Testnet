@@ -267,6 +267,8 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
      * stuff relevant to the request afterwards. */
     protected void routeRequests() {
     	
+    	if(logMINOR) Logger.minor(this, "Routing requests on "+this, new Exception("debug"));
+    	
     	PeerNode next = null;
     	
         peerLoop:
@@ -339,7 +341,12 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
             	finish(TIMED_OUT, null, false);
             	return;
             }
-
+            
+        	if(origTag.hasSourceRestarted()) {
+        		finish(ROUTE_NOT_FOUND, null, false);
+        		return;
+        	}
+        	
             RecentlyFailedReturn r = new RecentlyFailedReturn();
             
             long now = System.currentTimeMillis();
@@ -958,6 +965,7 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
 		//For debugging purposes, remember the number of responses AFTER the insert, and the last message type we received.
 		gotMessages++;
 		lastMessage=msg.getSpec().getName();
+		if(logMINOR) Logger.minor(this, "Handling message "+msg+" on "+this);
     	
     	if(msg.getSpec() == DMT.FNPDataNotFound) {
     		handleDataNotFound(msg, wasFork, source);
