@@ -246,7 +246,6 @@ public final class CHKInsertSender extends BaseSender implements PrioRunnable, A
             PeerNode source, Node node, PartiallyReceivedBlock prb, boolean fromStore,
             boolean canWriteClientCache, boolean forkOnCacheable, boolean preferInsert, boolean ignoreLowBackoff, boolean realTimeFlag) {
 		super(myKey, realTimeFlag, source, node, htl, uid);
-        this.target = myKey.toNormalizedDouble();
         this.origUID = uid;
         this.origTag = tag;
         this.headers = headers;
@@ -257,7 +256,6 @@ public final class CHKInsertSender extends BaseSender implements PrioRunnable, A
         this.forkOnCacheable = forkOnCacheable;
         this.preferInsert = preferInsert;
         this.ignoreLowBackoff = ignoreLowBackoff;
-        this.realTimeFlag = realTimeFlag;
         if(realTimeFlag) {
         	searchTimeout = SEARCH_TIMEOUT_REALTIME;
         	transferCompletionTimeout = TRANSFER_COMPLETION_ACK_TIMEOUT_REALTIME;
@@ -285,12 +283,9 @@ public final class CHKInsertSender extends BaseSender implements PrioRunnable, A
     final int transferCompletionTimeout;
     
     // Basics
-    final double target;
     final long origUID;
     final InsertTag origTag;
-    long uid;
     private InsertTag forkedRequestTag;
-    short htl;
     final byte[] headers; // received BEFORE creation => we handle Accepted elsewhere
     final PartiallyReceivedBlock prb;
     final boolean fromStore;
@@ -299,7 +294,6 @@ public final class CHKInsertSender extends BaseSender implements PrioRunnable, A
     private final boolean forkOnCacheable;
     private final boolean preferInsert;
     private final boolean ignoreLowBackoff;
-    private final boolean realTimeFlag;
 
     
     /** List of nodes we are waiting for either a transfer completion
