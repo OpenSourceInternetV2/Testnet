@@ -271,7 +271,6 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
     	
     	PeerNode next = null;
     	
-        peerLoop:
         while(true) {
             boolean canWriteStorePrev = node.canWriteDatastoreInsert(htl);
             if(dontDecrementHTLThisTime) {
@@ -1956,8 +1955,7 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
 				Logger.error(this, "Transfer started, not dumping listeners when reassigning to self on timeout (race condition?) on "+this);
 				return;
 			}
-			// Safe to call it here, tag is self-synched always last.
-			origTag.reassignToSelf();
+			origTag.onRestartOrDisconnectSource();
 			for(Listener l : listeners) {
 				l.onRequestSenderFinished(TIMED_OUT, fromOfferedKey);
 			}
@@ -2033,7 +2031,7 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
 	}
 	
     protected long getShortSlotWaiterTimeout() {
-    	return fetchTimeout / 10;
+    	return fetchTimeout / 20;
 	}
     
     protected long getLongSlotWaiterTimeout() {

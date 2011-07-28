@@ -256,7 +256,7 @@ public abstract class UIDTag {
 		if(hasUnlocked) return false;
 		if(!unlockedHandler) return false;
 		if(currentlyRoutingTo != null && !currentlyRoutingTo.isEmpty()) {
-			if(!(reassigned || wasLocal)) {
+			if(!(reassigned || wasLocal || sourceRestarted)) {
 				boolean expected = false;
 				if(handlingTimeouts != null) {
 					expected = true;
@@ -391,6 +391,9 @@ public abstract class UIDTag {
 		accepted = true;
 	}
 
+	/** The handler disconnected or restarted, or the request is taking a 
+	 * ridiculously long time and we have to avoid a timeout on the sender. 
+	 * Some places we use reassignToSelf() in the latter case. */
 	public synchronized void onRestartOrDisconnectSource() {
 		sourceRestarted = true;
 	}
