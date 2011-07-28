@@ -146,7 +146,11 @@ public class CHKInsertHandler implements PrioRunnable, ByteCounter {
         }
         
         if(msg.getSpec() == DMT.FNPDataInsertRejected) {
-        	// Not caused by the immediately upstream node.
+        	try {
+				source.sendAsync(DMT.createFNPDataInsertRejected(uid, msg.getShort(DMT.DATA_INSERT_REJECTED_REASON)), null, this);
+			} catch (NotConnectedException e) {
+				// Ignore.
+			}
         	return;
         }
         
@@ -330,6 +334,7 @@ public class CHKInsertHandler implements PrioRunnable, ByteCounter {
     				// Okay, great.
     				// Either we got a DataInsert, in which case the transfer was aborted above, or we got a DataInsertRejected, which means it never started.
     				// FIXME arguably we should wait until we have the message before sending the transfer cancel in case the message gets lost? Or maybe not?
+    				// FIXME unlock here rather than in finally block in realRun??? Unlocking in the finally block is safe (won't cause rejects), unlocking here might be more accurate ...
     			}
 
     			@Override

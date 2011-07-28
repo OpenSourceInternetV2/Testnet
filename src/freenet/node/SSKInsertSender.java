@@ -7,6 +7,7 @@ import java.util.HashSet;
 
 import freenet.crypt.DSAPublicKey;
 import freenet.crypt.SHA256;
+import freenet.io.comm.AsyncMessageCallback;
 import freenet.io.comm.AsyncMessageFilterCallback;
 import freenet.io.comm.ByteCounter;
 import freenet.io.comm.DMT;
@@ -61,6 +62,10 @@ public class SSKInsertSender extends BaseSender implements PrioRunnable, AnyInse
     private boolean hasRecentlyCollided;
     private SSKBlock block;
     private static boolean logMINOR;
+    private static boolean logDEBUG;
+    static {
+    	Logger.registerClass(SSKInsertSender.class);
+    }
     private final boolean forkOnCacheable;
     private final boolean preferInsert;
     private final boolean ignoreLowBackoff;
@@ -85,7 +90,6 @@ public class SSKInsertSender extends BaseSender implements PrioRunnable, AnyInse
     
     SSKInsertSender(SSKBlock block, long uid, InsertTag tag, short htl, PeerNode source, Node node, boolean fromStore, boolean canWriteClientCache, boolean forkOnCacheable, boolean preferInsert, boolean ignoreLowBackoff, boolean realTimeFlag) {
     	super(block.getKey(), realTimeFlag, source, node, htl, uid);
-    	logMINOR = Logger.shouldLog(LogLevel.MINOR, this);
     	this.fromStore = fromStore;
     	this.origUID = uid;
     	this.origTag = tag;
@@ -308,10 +312,13 @@ public class SSKInsertSender extends BaseSender implements PrioRunnable, AnyInse
 		// This is a WARNING not an ERROR because it's possible that the problem is we simply haven't been able to send the message yet, because we don't use sendSync().
 		// FIXME use a callback to rule this out and log an ERROR.
 		Logger.warning(this, "Timeout awaiting Accepted/Rejected "+this+" to "+next);
+		// Use the right UID here, in case we fork.
+		final long uid = tag.uid;
+		tag.handlingTimeout(next);
 		// The node didn't accept the request. So we don't need to send them the data.
 		// However, we do need to wait a bit longer to try to postpone the fatalTimeout().
 		// Somewhat intricate logic to try to avoid fatalTimeout() if at all possible.
-		MessageFilter mf = makeAcceptedRejectedFilter(next, TIMEOUT_AFTER_ACCEPTEDREJECTED_TIMEOUT);
+		MessageFilter mf = makeAcceptedRejectedFilter(next, TIMEOUT_AFTER_ACCEPTEDREJECTED_TIMEOUT, tag);
 		try {
 			node.usm.addAsyncFilter(mf, new SlowAsyncMessageFilterCallback() {
 
@@ -323,43 +330,41 @@ public class SSKInsertSender extends BaseSender implements PrioRunnable, AnyInse
 						next.noLongerRoutingTo(tag, false);
 					} else {
 						assert(m.getSpec() == DMT.FNPSSKAccepted);
+						if(logMINOR)
+							Logger.minor(this, "Accepted after timeout on "+SSKInsertSender.this+" - will not send DataInsert, waiting for RejectedTimeout");
 						if(logMINOR) Logger.minor(this, "Forked timed out insert but not going to send DataInsert on "+SSKInsertSender.this+" to "+next);
 						// We are not going to send the DataInsert.
 						// We have moved on, and we don't want inserts to fork unnecessarily.
-			            MessageFilter mfDataInsertRejected = MessageFilter.create().setSource(next).setField(DMT.UID, uid).setTimeout(searchTimeout).setType(DMT.FNPDataInsertRejected);
-			            try {
-							node.usm.addAsyncFilter(mfDataInsertRejected, new AsyncMessageFilterCallback() {
+						// However, we need to send a DataInsertRejected, or two-stage timeout will happen.
+						try {
+							next.sendAsync(DMT.createFNPDataInsertRejected(uid, DMT.DATA_INSERT_REJECTED_TIMEOUT_WAITING_FOR_ACCEPTED), new AsyncMessageCallback() {
 
 								@Override
-								public void onMatched(Message m) {
-									// Cool.
+								public void sent() {
+									// Ignore.
+									if(logDEBUG) Logger.debug(this, "DataInsertRejected sent after accepted timeout on "+SSKInsertSender.this);
+								}
+
+								@Override
+								public void acknowledged() {
+									if(logDEBUG) Logger.debug(this, "DataInsertRejected acknowledged after accepted timeout on "+SSKInsertSender.this);
 									next.noLongerRoutingTo(tag, false);
 								}
 
 								@Override
-								public boolean shouldTimeout() {
-									return false;
-								}
-
-								@Override
-								public void onTimeout() {
-									// Grrr!
-									Logger.error(this, "Fatal timeout awaiting FNPRejectedTimeout on insert to "+next+" for "+SSKInsertSender.this);
-									next.fatalTimeout(tag, false);
-								}
-
-								@Override
-								public void onDisconnect(PeerContext ctx) {
+								public void disconnected() {
+									if(logDEBUG) Logger.debug(this, "DataInsertRejected peer disconnected after accepted timeout on "+SSKInsertSender.this);
 									next.noLongerRoutingTo(tag, false);
 								}
 
 								@Override
-								public void onRestarted(PeerContext ctx) {
+								public void fatalError() {
+									if(logDEBUG) Logger.debug(this, "DataInsertRejected fatal error after accepted timeout on "+SSKInsertSender.this);
 									next.noLongerRoutingTo(tag, false);
 								}
 								
 							}, SSKInsertSender.this);
-						} catch (DisconnectedException e) {
+						} catch (NotConnectedException e) {
 							next.noLongerRoutingTo(tag, false);
 						}
 					}
@@ -504,7 +509,9 @@ public class SSKInsertSender extends BaseSender implements PrioRunnable, AnyInse
 
 	@Override
 	protected MessageFilter makeAcceptedRejectedFilter(PeerNode next,
-			int acceptedTimeout) {
+			int acceptedTimeout, UIDTag tag) {
+		// Use the right UID here, in case we fork.
+		final long uid = tag.uid;
         /*
          * Because messages may be re-ordered, it is
          * entirely possible that we get a non-local RejectedOverload,
