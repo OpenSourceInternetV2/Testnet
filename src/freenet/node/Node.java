@@ -4755,7 +4755,7 @@ public class Node implements TimeSkewDetectorCallback {
 				count++;
 				transfersOut += out;
 				transfersIn += in;
-				if(counterSourceRestarted != null && tag.hasSourceRestarted()) {
+				if(counterSourceRestarted != null && tag.countAsSourceRestarted()) {
 					countSR++;
 					transfersOutSR += out;
 					transfersInSR += in;
@@ -4795,7 +4795,7 @@ public class Node implements TimeSkewDetectorCallback {
 					count++;
 					transfersOut += out;
 					transfersIn += in;
-					if(counterSR != null && tag.hasSourceRestarted()) {
+					if(counterSR != null && tag.countAsSourceRestarted()) {
 						countSR++;
 						transfersOutSR += out;
 						transfersInSR += in;

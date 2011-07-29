@@ -341,7 +341,7 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
             	return;
             }
             
-        	if(origTag.hasSourceRestarted()) {
+        	if(origTag.shouldStop()) {
         		finish(ROUTE_NOT_FOUND, null, false);
         		return;
         	}
@@ -1695,7 +1695,7 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
     	} catch (WaitedTooLongForOpennetNoderefException e) {
     		Logger.error(this, "RequestSender timed out waiting for noderef from "+next+" for "+this);
     		// Not an error since it can be caused downstream.
-    		origTag.reassignToSelf(); // Since we will tell downstream that we are finished.
+    		origTag.timedOutToHandlerButContinued(); // Since we will tell downstream that we are finished.
     		Logger.warning(this, "RequestSender timed out waiting for noderef from "+next+" for "+this);
 			synchronized(this) {
 				opennetTimedOut = true;
@@ -1950,17 +1950,19 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
 	private boolean receivingAsync;
 	
 	private void reassignToSelfOnTimeout(boolean fromOfferedKey) {
+		Listener[] list;
 		synchronized(listeners) {
 			if(sentCHKTransferBegins) {
 				Logger.error(this, "Transfer started, not dumping listeners when reassigning to self on timeout (race condition?) on "+this);
 				return;
 			}
-			origTag.onRestartOrDisconnectSource();
-			for(Listener l : listeners) {
-				l.onRequestSenderFinished(TIMED_OUT, fromOfferedKey);
-			}
+			list = listeners.toArray(new Listener[listeners.size()]);
 			listeners.clear();
 		}
+		for(Listener l : list) {
+			l.onRequestSenderFinished(TIMED_OUT, fromOfferedKey);
+		}
+		origTag.timedOutToHandlerButContinued();
 	}
 	
 	@Override
@@ -1988,7 +1990,7 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
 		 * So we reassign the request to ourself, and then wait for the second timeout. */
 		@Override
 		public void onFirstTimeout() {
-			node.reassignTagToSelf(origTag);
+			origTag.timedOutToHandlerButContinued();
 		}
 
 		/** The timeout appears to have been caused by the node we are directly connected

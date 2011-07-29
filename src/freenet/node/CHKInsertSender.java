@@ -150,7 +150,8 @@ public final class CHKInsertSender extends BaseSender implements PrioRunnable, A
 			boolean noNotifyOriginator = false;
 			synchronized(backgroundTransfers) {
 				if(finishedWaiting) {
-					Logger.error(this, "Finished waiting already yet receivedNotice("+success+","+timeout+")", new Exception("error"));
+					if(!killed)
+						Logger.error(this, "Finished waiting already yet receivedNotice("+success+","+timeout+")", new Exception("error"));
 					return false;
 				}
 				if(killed) {
@@ -427,7 +428,7 @@ public final class CHKInsertSender extends BaseSender implements PrioRunnable, A
         while(true) {
         	if(failIfReceiveFailed(null, null)) return; // don't need to set status as killed by CHKInsertHandler
             
-        	if(origTag.hasSourceRestarted()) {
+        	if(origTag.shouldStop()) {
         		finish(SUCCESS, null);
         		return;
         	}
