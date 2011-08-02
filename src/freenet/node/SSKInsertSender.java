@@ -165,7 +165,7 @@ public class SSKInsertSender extends BaseSender implements PrioRunnable, AnyInse
                 if(logMINOR) Logger.minor(this, "Decremented HTL to "+htl);
             }
             starting = false;
-            if(htl == 0) {
+            if(htl <= 0) {
                 // Send an InsertReply back
         		if(!hasForwarded)
         			origTag.setNotRoutedOnwards();
@@ -409,6 +409,7 @@ public class SSKInsertSender extends BaseSender implements PrioRunnable, AnyInse
 	private void handleRouteNotFound(Message msg, PeerNode next, InsertTag thisTag) {
 		if(logMINOR) Logger.minor(this, "Rejected: RNF");
 		short newHtl = msg.getShort(DMT.HTL);
+		if(newHtl < 0) newHtl = 0;
 		if (htl > newHtl)
 			htl = newHtl;
 		next.successNotOverload(realTimeFlag);
@@ -703,7 +704,8 @@ public class SSKInsertSender extends BaseSender implements PrioRunnable, AnyInse
 
 	@Override
 	protected void timedOutWhileWaiting(double load) {
-		htl = (short)Math.min(0, hopsForFatalTimeoutWaitingForPeer());
+		htl -= (short)Math.min(0, hopsForFatalTimeoutWaitingForPeer());
+		if(htl < 0) htl = 0;
         // Backtrack, i.e. RNF.
 		if(!hasForwarded)
 			origTag.setNotRoutedOnwards();

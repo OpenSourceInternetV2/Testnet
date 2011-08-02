@@ -458,7 +458,7 @@ public final class CHKInsertSender extends BaseSender implements PrioRunnable, A
             boolean successNow = false;
             boolean noRequest = false;
             synchronized (this) {
-            	if(htl == 0) {
+            	if(htl <= 0) {
             		successNow = true;
             		// Send an InsertReply back
             		noRequest = !hasForwarded;
@@ -558,6 +558,7 @@ public final class CHKInsertSender extends BaseSender implements PrioRunnable, A
 	private void handleRNF(Message msg, PeerNode next, InsertTag thisTag) {
 		if(logMINOR) Logger.minor(this, "Rejected: RNF");
 		short newHtl = msg.getShort(DMT.HTL);
+		if(newHtl < 0) newHtl = 0;
 		synchronized (this) {
 			if (htl > newHtl)
 				htl = newHtl;						
@@ -1112,7 +1113,8 @@ public final class CHKInsertSender extends BaseSender implements PrioRunnable, A
 
 	@Override
 	protected void timedOutWhileWaiting(double load) {
-		htl = (short)Math.min(0, hopsForFatalTimeoutWaitingForPeer());
+		htl -= (short)Math.min(0, hopsForFatalTimeoutWaitingForPeer());
+		if(htl < 0) htl = 0;
         // Backtrack, i.e. RNF.
 		if(!hasForwarded)
 			origTag.setNotRoutedOnwards();

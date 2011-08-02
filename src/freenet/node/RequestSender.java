@@ -313,7 +313,7 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
             starting = false;
 
             if(logMINOR) Logger.minor(this, "htl="+htl);
-            if(htl == 0) {
+            if(htl <= 0) {
             	// This used to be RNF, I dunno why
 				//???: finish(GENERATED_REJECTED_OVERLOAD, null);
                 node.failureTable.onFinalFailure(key, null, htl, origHTL, FailureTable.RECENTLY_FAILED_TIME, FailureTable.REJECT_TIME, source);
@@ -1245,6 +1245,7 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
 	private void handleRouteNotFound(Message msg, PeerNode next) {
 		// Backtrack within available hops
 		short newHtl = msg.getShort(DMT.HTL);
+		if(newHtl < 0) newHtl = 0;
 		if(newHtl < htl) htl = newHtl;
 		next.successNotOverload(realTimeFlag);
 		int t = timeSinceSent();
@@ -2039,7 +2040,8 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
 
 	@Override
 	protected void timedOutWhileWaiting(double load) {
-		htl = (short)Math.min(0, hopsForFatalTimeoutWaitingForPeer());
+		htl -= (short)Math.min(0, hopsForFatalTimeoutWaitingForPeer());
+		if(htl < 0) htl = 0;
 		// Timeouts while waiting for a slot are relatively normal.
 		// That is, in an ideal world they wouldn't happen.
 		// They happen when the network is very small, or when there is a capacity bottleneck.
