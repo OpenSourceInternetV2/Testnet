@@ -799,10 +799,27 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 			sendTerminal(DMT.createFNPOpennetCompletedTimeout(uid));
 			return;
 		}
-		if(noderef == null || 
-				node.random.nextInt(OpennetManager.RESET_PATH_FOLDING_PROB) == 0) {
+		if(noderef == null) {
 			finishOpennetNoRelayInner(om);
 			return;
+		}
+		if(noderef != null && node.random.nextInt(OpennetManager.RESET_PATH_FOLDING_PROB) == 0) {
+			
+			// Check whether it is actually the noderef of the peer.
+			// If so, we need to relay it anyway.
+			
+			SimpleFieldSet ref = OpennetManager.validateNoderef(noderef, 0, noderef.length, source, false);
+			
+			if(ref == null || om.alreadyHaveOpennetNode(ref)) {
+				// Okay, let it through.
+			} else {
+				// Reset path folding.
+				// We need to tell the source of the noderef that we are not going to use it.
+				// RequestSender didn't because it expected us to use the ref.
+				rs.ackOpennet(rs.successFrom());
+				finishOpennetNoRelayInner(om);
+				return;
+			}
 		}
 
 		finishOpennetRelay(noderef, om);
@@ -851,6 +868,7 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 
 			@Override
 			public void timedOut() {
+				if(logMINOR) Logger.minor(this, "Timed out waiting for noderef from "+source+" on "+RequestHandler.this);
 				gotNoderef(null);
 			}
 
