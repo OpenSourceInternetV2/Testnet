@@ -35,10 +35,6 @@ public class SSKInsertSender extends BaseSender implements PrioRunnable, AnyInse
 
     // Constants
     static final int ACCEPTED_TIMEOUT = 10000;
-    static final int SEARCH_TIMEOUT_REALTIME = 60*1000;
-    static final int SEARCH_TIMEOUT_BULK = 600*1000;
-    
-    final int searchTimeout;
 
     // Basics
     final NodeSSK myKey;
@@ -104,10 +100,6 @@ public class SSKInsertSender extends BaseSender implements PrioRunnable, AnyInse
     	this.preferInsert = preferInsert;
     	this.ignoreLowBackoff = ignoreLowBackoff;
     	this.realTimeFlag = realTimeFlag;
-    	if(realTimeFlag)
-    		searchTimeout = SEARCH_TIMEOUT_REALTIME;
-    	else
-    		searchTimeout = SEARCH_TIMEOUT_BULK;
     }
 
     void start() {
@@ -467,7 +459,7 @@ public class SSKInsertSender extends BaseSender implements PrioRunnable, AnyInse
 		
 		headers = ((ShortBuffer) msg.getObject(DMT.BLOCK_HEADERS)).getData();
 		// Wait for the data
-		MessageFilter mfData = MessageFilter.create().setSource(next).setField(DMT.UID, uid).setTimeout(RequestSender.FETCH_TIMEOUT_REALTIME).setType(DMT.FNPSSKDataFoundData);
+		MessageFilter mfData = MessageFilter.create().setSource(next).setField(DMT.UID, uid).setTimeout(SSKInsertHandler.DATA_INSERT_TIMEOUT).setType(DMT.FNPSSKDataFoundData);
 		Message dataMessage;
 		try {
 			dataMessage = node.usm.waitFor(mfData, this);
@@ -705,23 +697,13 @@ public class SSKInsertSender extends BaseSender implements PrioRunnable, AnyInse
 	}
 
 	@Override
-	protected long getLongSlotWaiterTimeout() {
-		return searchTimeout / 5;
-	}
-
-	@Override
-	protected long getShortSlotWaiterTimeout() {
-		return searchTimeout / 20;
-	}
-
-	@Override
 	protected int getAcceptedTimeout() {
 		return ACCEPTED_TIMEOUT;
 	}
 
 	@Override
 	protected void timedOutWhileWaiting(double load) {
-		// FIXME maybe we need a way to tell the predecessor, like RecentlyFailed???
+		htl = (short)Math.min(0, hopsForFatalTimeoutWaitingForPeer());
         // Backtrack, i.e. RNF.
 		if(!hasForwarded)
 			origTag.setNotRoutedOnwards();
@@ -823,7 +805,7 @@ public class SSKInsertSender extends BaseSender implements PrioRunnable, AnyInse
         // We have sent them the pubkey, and the data.
         // Wait for the response.
         
-		MessageFilter mf = makeSearchFilter(next, searchTimeout);
+		MessageFilter mf = makeSearchFilter(next, calculateTimeout(htl));
         
         while (true) {
         	Message msg;

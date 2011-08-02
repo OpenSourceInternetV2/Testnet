@@ -48,6 +48,9 @@ public abstract class BaseSender implements ByteCounter {
     final Node node;
     protected final long startTime;
     long uid;
+    static final int SEARCH_TIMEOUT_BULK = 600*1000;
+    static final int SEARCH_TIMEOUT_REALTIME = 60*1000;
+    final int incomingSearchTimeout;
     
     BaseSender(Key key, boolean realTimeFlag, PeerNode source, Node node, short htl, long uid) {
     	if(key.getRoutingKey() == null) throw new NullPointerException();
@@ -63,8 +66,27 @@ public abstract class BaseSender implements ByteCounter {
         this.htl = htl;
         this.origHTL = htl;
         newLoadManagement = node.enableNewLoadManagement(realTimeFlag);
+        incomingSearchTimeout = calculateTimeout(realTimeFlag, htl, node);
     }
     
+    static final double EXTRA_HOPS_AT_BOTTOM = 1.0 / Node.DECREMENT_AT_MIN_PROB;
+    
+	static public int calculateTimeout(boolean realTimeFlag, short htl, Node node) {
+		double timeout = realTimeFlag ? SEARCH_TIMEOUT_REALTIME : SEARCH_TIMEOUT_BULK;
+		timeout = (timeout * ((double)htl) / (EXTRA_HOPS_AT_BOTTOM + (double) node.maxHTL())); 
+		return (int)timeout;
+	}
+	
+	protected int calculateTimeout(short htl) {
+		return calculateTimeout(realTimeFlag, htl, node);
+	}
+	
+	private short hopsForTime(long time) {
+		double timeout = realTimeFlag ? SEARCH_TIMEOUT_REALTIME : SEARCH_TIMEOUT_BULK;
+		double timePerHop = timeout / ((double)EXTRA_HOPS_AT_BOTTOM + (double) node.maxHTL());
+		return (short) Math.max(node.maxHTL(), time / timePerHop);
+	}
+
 	protected abstract Message createDataRequest();
 
     protected PeerNode lastNode;
@@ -550,9 +572,17 @@ loadWaiterLoop:
     	return total / waitedFor.size();
 	}
 
-	protected abstract long getLongSlotWaiterTimeout();
-    
-    protected abstract long getShortSlotWaiterTimeout();
+	protected long getLongSlotWaiterTimeout() {
+		return incomingSearchTimeout / 5;
+	}
+
+	protected long getShortSlotWaiterTimeout() {
+		return incomingSearchTimeout / 20;
+	}
+	
+	protected short hopsForFatalTimeoutWaitingForPeer() {
+		return hopsForTime(getLongSlotWaiterTimeout());
+	}
 
 	private void logDelta(long delta, int tryCount, boolean waitedForLoadManagement, boolean retriedForLoadManagement) {
 		long longTimeout = getLongSlotWaiterTimeout();

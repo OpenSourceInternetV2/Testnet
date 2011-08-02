@@ -316,10 +316,8 @@ public final class CHKInsertSender extends BaseSender implements PrioRunnable, A
         this.preferInsert = preferInsert;
         this.ignoreLowBackoff = ignoreLowBackoff;
         if(realTimeFlag) {
-        	searchTimeout = SEARCH_TIMEOUT_REALTIME;
         	transferCompletionTimeout = TRANSFER_COMPLETION_ACK_TIMEOUT_REALTIME;
         } else {
-        	searchTimeout = SEARCH_TIMEOUT_BULK;
         	transferCompletionTimeout = TRANSFER_COMPLETION_ACK_TIMEOUT_BULK;
         }
     }
@@ -337,12 +335,9 @@ public final class CHKInsertSender extends BaseSender implements PrioRunnable, A
 	
     // Constants
     static final int ACCEPTED_TIMEOUT = 10000;
-    static final int SEARCH_TIMEOUT_REALTIME = 60*1000;
-    static final int SEARCH_TIMEOUT_BULK = 600*1000;
     static final int TRANSFER_COMPLETION_ACK_TIMEOUT_REALTIME = 60*1000;
     static final int TRANSFER_COMPLETION_ACK_TIMEOUT_BULK = 300*1000;
 
-    final int searchTimeout;
     final int transferCompletionTimeout;
     
     // Basics
@@ -1111,23 +1106,13 @@ public final class CHKInsertSender extends BaseSender implements PrioRunnable, A
 	}
 
 	@Override
-	protected long getLongSlotWaiterTimeout() {
-		return searchTimeout / 5;
-	}
-
-	@Override
-	protected long getShortSlotWaiterTimeout() {
-		return searchTimeout / 20;
-	}
-
-	@Override
 	protected int getAcceptedTimeout() {
 		return ACCEPTED_TIMEOUT;
 	}
 
 	@Override
 	protected void timedOutWhileWaiting(double load) {
-		// FIXME maybe we need a way to tell the predecessor, like RecentlyFailed???
+		htl = (short)Math.min(0, hopsForFatalTimeoutWaitingForPeer());
         // Backtrack, i.e. RNF.
 		if(!hasForwarded)
 			origTag.setNotRoutedOnwards();
@@ -1150,6 +1135,7 @@ public final class CHKInsertSender extends BaseSender implements PrioRunnable, A
          * - FNPDataInsertRejected - the insert was invalid
          */
         
+        int searchTimeout = calculateTimeout(htl);
         MessageFilter mfInsertReply = MessageFilter.create().setSource(next).setField(DMT.UID, uid).setTimeout(searchTimeout).setType(DMT.FNPInsertReply);
         MessageFilter mfRejectedOverload = MessageFilter.create().setSource(next).setField(DMT.UID, uid).setTimeout(searchTimeout).setType(DMT.FNPRejectedOverload);
         MessageFilter mfRouteNotFound = MessageFilter.create().setSource(next).setField(DMT.UID, uid).setTimeout(searchTimeout).setType(DMT.FNPRouteNotFound);
@@ -1226,6 +1212,7 @@ public final class CHKInsertSender extends BaseSender implements PrioRunnable, A
 				
 				final InsertTag tag = thisTag;
 				final PeerNode waitingFor = next;
+				final short htl = this.htl;
 				
 				Runnable r = new Runnable() {
 
@@ -1235,6 +1222,7 @@ public final class CHKInsertSender extends BaseSender implements PrioRunnable, A
 						// That will happen in the BackgroundTransfer, which has already started.
 						
 						// FIXME factor out
+				        int searchTimeout = calculateTimeout(htl);
 		                MessageFilter mfInsertReply = MessageFilter.create().setSource(waitingFor).setField(DMT.UID, uid).setTimeout(searchTimeout).setType(DMT.FNPInsertReply);
 		                MessageFilter mfRejectedOverload = MessageFilter.create().setSource(waitingFor).setField(DMT.UID, uid).setTimeout(searchTimeout).setType(DMT.FNPRejectedOverload);
 		                MessageFilter mfRouteNotFound = MessageFilter.create().setSource(waitingFor).setField(DMT.UID, uid).setTimeout(searchTimeout).setType(DMT.FNPRouteNotFound);
