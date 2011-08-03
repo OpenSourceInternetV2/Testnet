@@ -840,6 +840,10 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 	 * Completion: Will ack downstream if necessary (if we didn't send a noderef), and will
 	 * in any case call applyByteCounts(); unregisterRequestHandlerWithNode() asynchronously,
 	 * either after receiving the noderef, or after sending the ack.
+	 * 
+	 * In all cases we do not interact with dataSource. The caller must have already
+	 * sent an ack to dataSource if necessary (but in most cases dataSource has timed out or 
+	 * something similar has happened).
 	 */
 	private void finishOpennetNoRelayInner(final OpennetManager om) {
 		if(logMINOR)
@@ -947,8 +951,8 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 			public void gotNoderef(byte[] newNoderef) {
 				
 				if(newNoderef == null) {
-					// Already sent a ref, no way to tell upstream that we didn't receive one. :(
 					tag.unlockHandler();
+					rs.ackOpennet(dataSource);
 				} else {
 					
 					// Send it forward to the data source, if it is valid.
@@ -986,12 +990,20 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 
 			@Override
 			public void timedOut() {
-				gotNoderef(null);
+				tag.unlockHandler();
+				try {
+					dataSource.sendAsync(DMT.createFNPOpennetCompletedTimeout(uid), null, RequestHandler.this);
+				} catch (NotConnectedException e) {
+					// Ignore
+				}
+				node.removeTransferringRequestHandler(uid);
 			}
 
 			@Override
 			public void acked(boolean timedOutMessage) {
-				gotNoderef(null);
+				tag.unlockHandler();
+				rs.ackOpennet(dataSource);
+				node.removeTransferringRequestHandler(uid);
 			}
 			
 		}, node);
