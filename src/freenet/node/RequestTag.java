@@ -12,6 +12,12 @@ import freenet.support.TimeUtil;
  */
 public class RequestTag extends UIDTag {
 	
+    private static volatile boolean logMINOR;
+    
+    static {
+    	Logger.registerClass(RequestTag.class);
+    }
+	
 	enum START {
 		ASYNC_GET,
 		LOCAL,
@@ -175,7 +181,7 @@ public class RequestTag extends UIDTag {
 		boolean noRecordUnlock;
 		synchronized(this) {
 			if(waitingForOpennet == null) {
-				Logger.error(this, "Not waiting for opennet!");
+				if(logMINOR) Logger.minor(this, "Not waiting for opennet!");
 				return;
 			}
 			PeerNode got = waitingForOpennet.get();
