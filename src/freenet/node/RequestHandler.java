@@ -298,6 +298,10 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 					@Override
 					public void blockTransferFinished(boolean success) {
 						synchronized(RequestHandler.this) {
+							if(transferCompleted) {
+								Logger.error(this, "Transfer already completed on "+this, new Exception("debug"));
+								return;
+							}
 							transferCompleted = true;
 							transferSuccess = success;
 							if(!waitingForTransferSuccess) return;
@@ -329,6 +333,7 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 	 * @param success Whether the block transfer succeeded.
 	 */
 	protected void transferFinished(boolean success) {
+		if(logMINOR) Logger.minor(this, "Transfer finished (success="+success+")");
 		if(success) {
 			status = rs.getStatus();
 			// Successful CHK transfer, maybe path fold
@@ -792,6 +797,7 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 	 * sent a noderef (after we have handled the incoming noderef / ack / timeout). 
 	 */
 	private void finishOpennetInner(OpennetManager om) {
+		if(logMINOR) Logger.minor(this, "Finish opennet on "+this);
 		byte[] noderef;
 		try {
 			noderef = rs.waitForOpennetNoderef();
@@ -800,6 +806,7 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 			return;
 		}
 		if(noderef == null) {
+			if(logMINOR) Logger.minor(this, "Not relaying as no noderef on "+this);
 			finishOpennetNoRelayInner(om);
 			return;
 		}
@@ -813,6 +820,7 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 			if(ref == null || om.alreadyHaveOpennetNode(ref)) {
 				// Okay, let it through.
 			} else {
+				if(logMINOR) Logger.minor(this, "Resetting path folding on "+this);
 				// Reset path folding.
 				// We need to tell the source of the noderef that we are not going to use it.
 				// RequestSender didn't because it expected us to use the ref.
@@ -835,7 +843,7 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 	 */
 	private void finishOpennetNoRelayInner(final OpennetManager om) {
 		if(logMINOR)
-			Logger.minor(this, "Finishing opennet: sending own reference");
+			Logger.minor(this, "Finishing opennet: sending own reference", new Exception("debug"));
 		if(!om.wantPeer(null, false, false, false, ConnectionType.PATH_FOLDING)) {
 			ackOpennet();
 			return; // Don't want a reference

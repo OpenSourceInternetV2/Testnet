@@ -1734,21 +1734,29 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
     
     public byte[] waitForOpennetNoderef() throws WaitedTooLongForOpennetNoderefException {
     	synchronized(this) {
+    		long startTime = System.currentTimeMillis();
     		while(true) {
     			if(opennetFinished) {
     				if(opennetTimedOut)
     					throw new WaitedTooLongForOpennetNoderefException();
+    				if(logMINOR)
+    					Logger.minor(this, "Grabbing opennet noderef on "+this, new Exception("debug"));
     				// Only one RequestHandler may take the noderef
     				byte[] ref = opennetNoderef;
     				opennetNoderef = null;
     				return ref;
     			}
     			try {
-					wait(OPENNET_TIMEOUT);
+    				int waitTime = (int) Math.min(Integer.MAX_VALUE, OPENNET_TIMEOUT + startTime - System.currentTimeMillis());
+    				if(waitTime > 0) {
+    					wait(waitTime);
+    					continue;
+    				}
 				} catch (InterruptedException e) {
 					// Ignore
 					continue;
 				}
+				if(logMINOR) Logger.minor(this, "Took too long waiting for opennet ref on "+this);
 				return null;
     		}
     	}
