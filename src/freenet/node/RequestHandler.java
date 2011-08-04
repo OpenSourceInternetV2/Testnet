@@ -688,6 +688,9 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 
 	private void unregisterRequestHandlerWithNode() {
 		node.removeTransferringRequestHandler(uid);
+		PeerNode p = rs.successFrom();
+		if(p != null)
+			tag.finishedWaitingForOpennet(p);
 		tag.unlockHandler();
 	}
 
@@ -862,7 +865,7 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 	 */
 	private void finishOpennetNoRelayInner(final OpennetManager om) {
 		if(logMINOR)
-			Logger.minor(this, "Finishing opennet: sending own reference", new Exception("debug"));
+			Logger.minor(this, "Finishing opennet: sending own reference on "+this, new Exception("debug"));
 		if(!om.wantPeer(null, false, false, false, ConnectionType.PATH_FOLDING)) {
 			ackOpennet();
 			return; // Don't want a reference
@@ -943,7 +946,7 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 	 */
 	private void finishOpennetRelay(byte[] noderef, final OpennetManager om) {
 		if(logMINOR)
-			Logger.minor(this, "Finishing opennet: relaying reference from " + rs.successFrom());
+			Logger.minor(this, "Finishing opennet: relaying reference from " + rs.successFrom()+" on "+this);
 		// Send it back to the handler, then wait for the ConnectReply
 		final PeerNode dataSource = rs.successFrom();
 
