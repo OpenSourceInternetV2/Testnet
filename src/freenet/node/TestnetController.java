@@ -245,6 +245,11 @@ public class TestnetController implements Runnable {
 						System.err.println("Cannot parse date \""+datePart+"\"");
 						continue;
 					}
+					regex = regex.trim();
+					if(regex.equals("")) {
+						System.err.println("No regex");
+						continue;
+					}
 					try {
 						Pattern check = Pattern.compile(regex);
 					} catch (PatternSyntaxException e) {
