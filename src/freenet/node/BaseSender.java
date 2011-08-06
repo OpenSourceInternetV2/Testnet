@@ -72,9 +72,14 @@ public abstract class BaseSender implements ByteCounter {
     static final double EXTRA_HOPS_AT_BOTTOM = 1.0 / Node.DECREMENT_AT_MIN_PROB;
     
 	static public int calculateTimeout(boolean realTimeFlag, short htl, Node node) {
-		double timeout = realTimeFlag ? SEARCH_TIMEOUT_REALTIME : SEARCH_TIMEOUT_BULK;
-		timeout = (timeout * ((double)htl + EXTRA_HOPS_AT_BOTTOM) / (EXTRA_HOPS_AT_BOTTOM + (double) node.maxHTL())); 
-		return (int)timeout;
+		//double timeout = realTimeFlag ? SEARCH_TIMEOUT_REALTIME : SEARCH_TIMEOUT_BULK;
+		//timeout = (timeout * ((double)htl + EXTRA_HOPS_AT_BOTTOM) / (EXTRA_HOPS_AT_BOTTOM + (double) node.maxHTL())); 
+		//return (int)timeout;
+		
+		// FIXME reinstate timeout-per-htl.
+		// This is important, but needs to be deployed on its own as it is potentially very disruptive in the short term.
+		
+		return realTimeFlag ? SEARCH_TIMEOUT_REALTIME : SEARCH_TIMEOUT_BULK;
 	}
 	
 	protected int calculateTimeout(short htl) {
@@ -170,7 +175,7 @@ public abstract class BaseSender implements ByteCounter {
 			 * Don't use sendAsync().
 			 */
         	next.sendSync(req, this, realTimeFlag);
-        	next.reportRoutedTo(key.toNormalizedDouble(), source == null, realTimeFlag);
+        	next.reportRoutedTo(key.toNormalizedDouble(), source == null, realTimeFlag, source, nodesRoutedTo);
 			node.peers.incrementSelectionSamples(System.currentTimeMillis(), next);
         } catch (NotConnectedException e) {
         	Logger.minor(this, "Not connected");
@@ -296,7 +301,7 @@ loadWaiterLoop:
     					// We routed it, thinking it was GUARANTEED.
     					// It was rejected, and as far as we know it's still GUARANTEED. :(
     					Logger.error(this, "Rejected overload (last time) yet expected state was "+lastExpectedAcceptState+" is now "+expectedAcceptState+" from "+next.shortToString()+" ("+next.getVersionNumber()+")");
-    					next.enterMandatoryBackoff("Mandatory:RejectedGUARANTEED", realTimeFlag);
+    					next.rejectedGuaranteed(realTimeFlag);
     					next.noLongerRoutingTo(origTag, false);
     					expectedAcceptState = null;
     					dontDecrementHTLThisTime = true;
@@ -503,7 +508,7 @@ loadWaiterLoop:
     			 * Don't use sendAsync().
     			 */
     			if(logMINOR) Logger.minor(this, "Sending "+req+" to "+next);
-    			next.reportRoutedTo(key.toNormalizedDouble(), source == null, realTimeFlag);
+    			next.reportRoutedTo(key.toNormalizedDouble(), source == null, realTimeFlag, source, nodesRoutedTo);
     			next.sendSync(req, this, realTimeFlag);
     		} catch (NotConnectedException e) {
     			Logger.minor(this, "Not connected");
@@ -551,6 +556,8 @@ loadWaiterLoop:
         
         gotMessages = 0;
         lastMessage = null;
+        
+        next.acceptedAny(realTimeFlag);
         
         onAccepted(next);
 	}

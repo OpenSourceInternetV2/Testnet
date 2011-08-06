@@ -6162,8 +6162,40 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		return false;
 	}
 
-	public void reportRoutedTo(double target, boolean isLocal, boolean realTime) {
+	public void reportRoutedTo(double target, boolean isLocal, boolean realTime, PeerNode prev, Set<PeerNode> routedTo) {
 		double distance = Location.distance(target, getLocation());
+		
+		double myLoc = node.getLocation();
+		double prevLoc;
+		if(prev != null)
+			prevLoc = prev.getLocation();
+		else
+			prevLoc = -1.0;
+		
+		double[] peersLocation = getPeersLocation();
+		if((peersLocation != null) && (shallWeRouteAccordingToOurPeersLocation())) {
+			for(double l : peersLocation) {
+				boolean ignoreLoc = false; // Because we've already been there
+				if(Math.abs(l - myLoc) < Double.MIN_VALUE * 2 ||
+						Math.abs(l - prevLoc) < Double.MIN_VALUE * 2)
+					ignoreLoc = true;
+				else {
+					for(PeerNode cmpPN : routedTo)
+						if(Math.abs(l - cmpPN.getLocation()) < Double.MIN_VALUE * 2) {
+							ignoreLoc = true;
+							break;
+						}
+				}
+				if(ignoreLoc) continue;
+				double newDiff = Location.distance(l, target);
+				if(newDiff < distance) {
+					distance = newDiff;
+				}
+			}
+			if(logMINOR)
+				Logger.minor(this, "The peer "+this+" has published his peer's locations and the closest we have found to the target is "+distance+" away.");
+		}
+		
 		node.nodeStats.routingMissDistanceOverall.report(distance);
 		(isLocal ? node.nodeStats.routingMissDistanceLocal : node.nodeStats.routingMissDistanceRemote).report(distance);
 		(realTime ? node.nodeStats.routingMissDistanceRT : node.nodeStats.routingMissDistanceBulk).report(distance);
@@ -6265,6 +6297,65 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	
 	public synchronized SimpleFieldSet getFullNoderef() {
 		return fullFieldSet;
+	}
+
+	private int consecutiveGuaranteedRejectsRT = 0;
+	private int consecutiveGuaranteedRejectsBulk = 0;
+	
+	private int CONSECUTIVE_REJECTS_MANDATORY_BACKOFF = 5;
+	
+	/** After 5 consecutive GUARANTEED soft rejections, we enter mandatory backoff.
+	 * The reason why we don't immediately enter mandatory backoff is as follows:
+	 * PROBLEM: Requests could have completed between the time when the request 
+	 * was rejected and now.
+	 * SOLUTION A: Tracking all possible requests which completed since the 
+	 * request was sent. CON: This would be rather complex, and I'm not sure
+	 * how well it would work when there are many requests in flight; would it
+	 * even be possible without stopping sending requests after some arbitrary
+	 * threshold? We might need a time element, and would probably need parameters...
+	 * SOLUTION B: Enforcing a hard peer limit on both sides, as opposed to 
+	 * accepting a request if the *current* usage, without the new request, is 
+	 * over the limit. CON: This would break fairness between request types.
+	 * 
+	 * Of course, the problem with just using a counter is it may need to be 
+	 * changed frequently ... FIXME create a better solution!
+	 *
+	 * Fortunately, this is pretty rare. It happens when e.g. we send an SSK,
+	 * then we send a CHK, the messages are reordered and the CHK is accepted,
+	 * and then the SSK is rejected. Both were GUARANTEED because if they 
+	 * are accepted in order, thanks to the mechanism referred to in solution B,
+	 * they will both be accepted.
+	 */
+	public void rejectedGuaranteed(boolean realTimeFlag) {
+		synchronized(this) {
+			if(realTimeFlag) {
+				consecutiveGuaranteedRejectsRT++;
+				if(consecutiveGuaranteedRejectsRT != CONSECUTIVE_REJECTS_MANDATORY_BACKOFF) {
+					return;
+				}
+				consecutiveGuaranteedRejectsRT = 0;
+			} else {
+				consecutiveGuaranteedRejectsBulk++;
+				if(consecutiveGuaranteedRejectsBulk != CONSECUTIVE_REJECTS_MANDATORY_BACKOFF) {
+					return;
+				}
+				consecutiveGuaranteedRejectsBulk = 0;
+			}
+		}
+		enterMandatoryBackoff("Mandatory:RejectedGUARANTEED", realTimeFlag);
+	}
+
+	/** Accepting a request, even if it was not GUARANTEED, resets the counters
+	 * for consecutive guaranteed rejections. @see rejectedGuaranteed(boolean realTimeFlag).
+	 */
+	public void acceptedAny(boolean realTimeFlag) {
+		synchronized(this) {
+			if(realTimeFlag) {
+				consecutiveGuaranteedRejectsRT = 0;
+			} else {
+				consecutiveGuaranteedRejectsBulk = 0;
+			}
+		}
 	}
 	
 }
