@@ -122,8 +122,7 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 			tag.unlockHandler();
 		}
 	}
-	private Exception previousApplyByteCountCall;
-
+	
 	private void applyByteCounts() {
 		synchronized(this) {
 			if(disconnected) {
@@ -131,11 +130,8 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 				return;
 			}
 			if(appliedByteCounts) {
-				Logger.error(this, "applyByteCounts already called", new Exception("error"));
-				Logger.error(this, "first called here", previousApplyByteCountCall);
 				return;
 			}
-			previousApplyByteCountCall = new Exception("first call to applyByteCounts");
 			appliedByteCounts = true;
 			if(!((!finalTransferFailed) && rs != null && status != RequestSender.TIMED_OUT && status != RequestSender.GENERATED_REJECTED_OVERLOAD && status != RequestSender.INTERNAL_ERROR))
 				return;
@@ -951,10 +947,10 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 	 * @param om
 	 */
 	private void finishOpennetRelay(byte[] noderef, final OpennetManager om) {
-		if(logMINOR)
-			Logger.minor(this, "Finishing opennet: relaying reference from " + rs.successFrom()+" on "+this);
-		// Send it back to the handler, then wait for the ConnectReply
 		final PeerNode dataSource = rs.successFrom();
+		if(logMINOR)
+			Logger.minor(this, "Finishing opennet: relaying reference from " + dataSource+" on "+this);
+		// Send it back to the handler, then wait for the ConnectReply
 
 		try {
 			om.sendOpennetRef(false, uid, source, noderef, this);
@@ -1004,15 +1000,11 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 							});
 						} catch(NotConnectedException e) {
 							// How sad
-							tag.finishedWaitingForOpennet(dataSource);
-							tag.unlockHandler();
-							applyByteCounts();
 						}
-					} else {
-						tag.finishedWaitingForOpennet(dataSource);
-						tag.unlockHandler();
-						applyByteCounts();
 					}
+					tag.finishedWaitingForOpennet(dataSource);
+					tag.unlockHandler();
+					applyByteCounts();
 				}
 				
 				node.removeTransferringRequestHandler(uid);
