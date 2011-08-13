@@ -2069,10 +2069,11 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
 	
 	@Override
 	protected void onAccepted(PeerNode next) {
-		onAccepted(next, false);
+		onAccepted(next, false, htl);
 	}
 	
-	protected void onAccepted(PeerNode next, boolean forked) {
+	/** If we handled a timeout, and forked, we need to know the original HTL. */
+	protected void onAccepted(PeerNode next, boolean forked, short htl) {
 		MainLoopCallback cb;
         synchronized(this) {
         	receivingAsync = true;
@@ -2088,7 +2089,7 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
 
 	@Override
 	protected void timedOutWhileWaiting(double load) {
-		htl -= (short)Math.min(0, hopsForFatalTimeoutWaitingForPeer());
+		htl -= (short)Math.max(0, hopsForFatalTimeoutWaitingForPeer());
 		if(htl < 0) htl = 0;
 		// Timeouts while waiting for a slot are relatively normal.
 		// That is, in an ideal world they wouldn't happen.
@@ -2114,6 +2115,7 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
 	protected void handleAcceptedRejectedTimeout(final PeerNode next,
 			final UIDTag origTag) {
 		
+		final short htl = this.htl;
 		origTag.handlingTimeout(next);
 		
 		int timeout = 60*1000;
@@ -2130,7 +2132,7 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
 						next.noLongerRoutingTo(origTag, false);
 					} else {
 						// Accepted. May as well wait for the data, if any.
-						onAccepted(next, true);
+						onAccepted(next, true, htl);
 					}
 				}
 				
