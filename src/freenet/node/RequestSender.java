@@ -192,7 +192,7 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
 				
     			boolean fromOfferedKey;
     			
-				synchronized(this) {
+				synchronized(RequestSender.this) {
 					if(status != NOT_FINISHED) return;
 					if(transferringFrom != null) return;
 					reassignedToSelfDueToMultipleTimeouts = true;
@@ -983,8 +983,8 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
     	}
     	
     	if(msg.getSpec() == DMT.FNPRejectedOverload) {
-    		if(handleRejectedOverload(msg, source)) return DO.WAIT;
-    		else return DO.NEXT_PEER;
+    		if(handleRejectedOverload(msg, wasFork, source)) return DO.WAIT;
+    		else return DO.FINISHED;
     	}
 
     	if((!isSSK) && msg.getSpec() == DMT.FNPCHKDataFound) {
@@ -1222,7 +1222,7 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
 
 	/** @param next 
 	 * @return True to continue waiting for this node, false to move on to another. */
-	private boolean handleRejectedOverload(Message msg, PeerNode next) {
+	private boolean handleRejectedOverload(Message msg, boolean wasFork, PeerNode next) {
 		
 		// Non-fatal - probably still have time left
 		forwardRejectedOverload();
@@ -1235,8 +1235,18 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
 			next.localRejectedOverload("ForwardRejectedOverload2", realTimeFlag);
 			// Node in trouble suddenly??
 			Logger.normal(this, "Local RejectedOverload after Accepted, moving on to next peer");
-			// Give up on this one, try another
+			// Local RejectedOverload, after already having Accepted.
+			// This indicates either:
+			// a) The node no longer has the resources to handle the request, even though it did initially.
+			// b) The node has a severe internal error.
+			// c) The node knows we will timeout fatally if it doesn't send something.
+			// In all 3 cases, it is possible that the request is continuing downstream.
+			// So this is fatal. Treat similarly to a DNF.
+			// FIXME use a different message for termination after accepted.
 			next.noLongerRoutingTo(origTag, false);
+			node.failureTable.onFinalFailure(key, next, htl, origHTL, FailureTable.RECENTLY_FAILED_TIME, FailureTable.REJECT_TIME, source);
+			if(!wasFork)
+				finish(TIMED_OUT, next, false);
 			return false;
 		}
 		//so long as the node does not send a (IS_LOCAL) message. Interestingly messages can often timeout having only received this message.
@@ -1697,8 +1707,13 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
 				}
 				// RequestHandler will send a noderef back up, eventually, and will unlockHandler() after that point.
 				// But if this is a local request, we need to send the ack now.
+				// Serious race condition not possible here as we set it.
 				if(source == null)
 					ackOpennet(next);
+				else if(origTag.shouldStop()) {
+					// Can't pass it on.
+					origTag.finishedWaitingForOpennet(next);
+				}
 				return false;
 			} else {
 				// opennetNoderef = null i.e. we want the noderef so we won't pass it further down.
@@ -1725,6 +1740,7 @@ public final class RequestSender extends BaseSender implements PrioRunnable {
 			// Hmmm... let the LRU deal with it
 			if(logMINOR)
 				Logger.minor(this, "Not connected sending ConnectReply on "+this+" to "+next);
+			origTag.finishedWaitingForOpennet(next);
     	} catch (WaitedTooLongForOpennetNoderefException e) {
     		Logger.error(this, "RequestSender timed out waiting for noderef from "+next+" for "+this);
     		// Not an error since it can be caused downstream.
