@@ -309,7 +309,7 @@ public class Node implements TimeSkewDetectorCallback {
 			synchronized(this) {
 				name = myName;
 			}
-			if(name.startsWith("Node id|")|| name.equals("MyFirstFreenetNode")){
+			if(name.startsWith("Node id|")|| name.equals("MyFirstFreenetNode") || name.startsWith("Freenet node with no name #")){
 				clientCore.alerts.register(nodeNameUserAlert);
 			}else{
 				clientCore.alerts.unregister(nodeNameUserAlert);
@@ -940,7 +940,7 @@ public class Node implements TimeSkewDetectorCallback {
 
 
 	private String newName() {
-		return "Node id|"+random.nextLong();
+		return "Freenet node with no name #"+random.nextLong();
 	}
 
 	private final Object writeNodeFileSync = new Object();
@@ -1108,6 +1108,11 @@ public class Node implements TimeSkewDetectorCallback {
 
 				@Override
 				public void run() {
+					try {
+						// Delay entropy generation helper hack if enough entropy available
+						Thread.sleep(100);
+					} catch (InterruptedException e) {
+					}
 					for(File root : File.listRoots()) {
 						if(isPRNGReady)
 							return;
@@ -1757,9 +1762,8 @@ public class Node implements TimeSkewDetectorCallback {
 		usm.setDispatcher(dispatcher=new NodeDispatcher(this));
 
 		// Then read the peers
-		peers = new PeerManager(this);
+		peers = new PeerManager(this, shutdownHook);
 		peers.tryReadPeers(nodeDir.file("peers-"+getDarknetPortNumber()).getPath(), darknetCrypto, null, false, false);
-		peers.writePeers();
 		peers.updatePMUserAlert();
 
 		uptime = new UptimeEstimator(runDir, ticker, darknetCrypto.identityHash);
@@ -2115,14 +2119,22 @@ public class Node implements TimeSkewDetectorCallback {
                     public void set(Boolean val) throws InvalidConfigValueException, NodeNeedRestartException {
 						storePreallocate = val;
 						if (storeType.equals("salt-hash")) {
-							((SaltedHashFreenetStore<CHKBlock>) chkDatastore.getStore()).setPreallocate(val);
-							((SaltedHashFreenetStore<CHKBlock>) chkDatacache.getStore()).setPreallocate(val);
-							((SaltedHashFreenetStore<DSAPublicKey>) pubKeyDatastore.getStore()).setPreallocate(val);
-							((SaltedHashFreenetStore<DSAPublicKey>) pubKeyDatacache.getStore()).setPreallocate(val);
-							((SaltedHashFreenetStore<SSKBlock>) sskDatastore.getStore()).setPreallocate(val);
-							((SaltedHashFreenetStore<SSKBlock>) sskDatacache.getStore()).setPreallocate(val);
+							setPreallocate(chkDatastore, val);
+							setPreallocate(chkDatacache, val);
+							setPreallocate(pubKeyDatastore, val);
+							setPreallocate(pubKeyDatacache, val);
+							setPreallocate(sskDatastore, val);
+							setPreallocate(sskDatacache, val);
 						}
-                    }}
+                    }
+
+					private void setPreallocate(StoreCallback<?> datastore,
+							boolean val) {
+						// Avoid race conditions by checking first.
+						FreenetStore<?> store = datastore.getStore();
+						if(store instanceof SaltedHashFreenetStore)
+							((SaltedHashFreenetStore<?>)store).setPreallocate(val);
+					}}
 		);
 		storePreallocate = nodeConfig.getBoolean("storePreallocate");
 
@@ -3264,8 +3276,6 @@ public class Node implements TimeSkewDetectorCallback {
 		}
 
 	};
-	private boolean xmlRemoteCodeExec;
-
 	private void createPasswordUserAlert() {
 		this.clientCore.alerts.register(masterPasswordUserAlert);
 	}
@@ -3899,52 +3909,10 @@ public class Node implements TimeSkewDetectorCallback {
 		String jvmSpecVendor = System.getProperty("java.specification.vendor","");
 		String javaVersion = System.getProperty("java.version");
 		String jvmName = System.getProperty("java.vm.name");
-		String jvmVersion = System.getProperty("java.vm.version");
 		String osName = System.getProperty("os.name");
 		String osVersion = System.getProperty("os.version");
 
 		boolean isOpenJDK = false;
-
-		if(jvmName.startsWith("OpenJDK ")) {
-			isOpenJDK = true;
-			if(javaVersion.startsWith("1.6.0")) {
-				String subverString;
-				if(jvmVersion.startsWith("14.0-b"))
-					subverString = jvmVersion.substring("14.0-b".length());
-				else if(jvmVersion.startsWith("1.6.0_0-b"))
-					subverString = jvmVersion.substring("1.6.0_0-b".length());
-				else
-					subverString = null;
-				if(subverString != null) {
-					int subver;
-					try {
-						subver = Integer.parseInt(subverString);
-					} catch (NumberFormatException e) {
-						subver = -1;
-					}
-				if(subver > -1 && subver < 15) {
-					File javaDir = new File(System.getProperty("java.home"));
-
-					// Assume that if the java home dir has been updated since August 11th, we have the fix.
-
-					final Calendar _cal = Calendar.getInstance(TimeZone.getTimeZone("GMT"));
-					_cal.set(2009, Calendar.AUGUST, 11, 0, 0, 0);
-					if(javaDir.exists() && javaDir.isDirectory() && javaDir.lastModified() > _cal.getTimeInMillis()) {
-						System.err.println("Your Java appears to have been updated, we probably do not have the XML bug (http://www.cert.fi/en/reports/2009/vulnerability2009085.html).");
-					} else {
-						System.err.println("Old version of OpenJDK detected. It is possible that your Java may be vulnerable to a remote code execution vulnerability. Please update your operating system ASAP. We will not disable plugins because we cannot be sure whether there is a problem.");
-						System.err.println("See here: http://www.cert.fi/en/reports/2009/vulnerability2009085.html");
-						clientCore.alerts.register(new SimpleUserAlert(false, l10n("openJDKMightBeVulnerableXML"), l10n("openJDKMightBeVulnerableXML"), l10n("openJDKMightBeVulnerableXML"), UserAlert.ERROR));
-					}
-
-				}
-				}
-			}
-		}
-
-		if(javaVersion.startsWith("1.5.0_")) {
-			clientCore.alerts.register(new SimpleUserAlert(false, l10n("java15DeprecatedTitle"), l10n("java15Deprecated"), l10n("java15DeprecatedTitle"), UserAlert.CRITICAL_ERROR));
-		}
 
 		if(logMINOR) Logger.minor(this, "JVM vendor: "+jvmVendor+", JVM name: "+jvmName+", JVM version: "+javaVersion+", OS name: "+osName+", OS version: "+osVersion);
 
@@ -3974,15 +3942,6 @@ public class Node implements TimeSkewDetectorCallback {
 
 				Logger.minor(this, "JVM version: "+javaVersion+" subver: "+subver+" from "+secondPart);
 
-				if(is150 && subver < 20 || is160 && subver < 15)
-					xmlRemoteCodeExec = true;
-			}
-
-			if(xmlRemoteCodeExec) {
-				System.err.println("Please upgrade your Java to 1.6.0 update 15 or 1.5.0 update 20 IMMEDIATELY!");
-				System.err.println("Freenet plugins using XML, including the search function, and Freenet client applications such as Thaw which use XML are vulnerable to remote code execution!");
-
-				clientCore.alerts.register(new SimpleUserAlert(false, l10n("sunJVMxmlRemoteCodeExecTitle"), l10n("sunJVMxmlRemoteCodeExec"), l10n("sunJVMxmlRemoteCodeExecTitle"), UserAlert.CRITICAL_ERROR));
 			}
 
 		} else if (jvmVendor.startsWith("Apple ") || jvmVendor.startsWith("\"Apple ")) {
@@ -4009,10 +3968,6 @@ public class Node implements TimeSkewDetectorCallback {
 			clientCore.alerts.register(new SimpleUserAlert(true, l10n("notUsingWrapperTitle"), l10n("notUsingWrapper"), l10n("notUsingWrapperShort"), UserAlert.WARNING));
 		}
 
-	}
-
-	public boolean xmlRemoteCodeExecVuln() {
-		return xmlRemoteCodeExec;
 	}
 
 	public static boolean checkForGCJCharConversionBug() {
@@ -4838,6 +4793,27 @@ public class Node implements TimeSkewDetectorCallback {
 		}
 		}
 	}
+	
+	/**
+	 * @return [0] is the number of local requests waiting for slots, [1] is the
+	 * number of remote requests waiting for slots.
+	 */
+	public int[] countRequestsWaitingForSlots() {
+		// FIXME use a counter, but that means make sure it always removes it when something bad happens.
+		
+		int local = 0;
+		int remote = 0;
+		synchronized(runningUIDs) {
+			for(UIDTag tag : runningUIDs.values()) {
+				if(!tag.isWaitingForSlot()) continue;
+				if(tag.isLocal())
+					local++;
+				else
+					remote++;
+			}
+		}
+		return new int[] { local, remote };
+	}
 
 	void reassignTagToSelf(UIDTag tag) {
 		// The tag remains remote, but we flag it as adopted.
@@ -5400,12 +5376,12 @@ public class Node implements TimeSkewDetectorCallback {
 
 	public boolean addPeerConnection(PeerNode pn) {
 		boolean retval = peers.addPeer(pn);
-		peers.writePeers();
+		peers.writePeersUrgent(pn.isOpennet());
 		return retval;
 	}
 
 	public void removePeerConnection(PeerNode pn) {
-		peers.disconnect(pn, true, false, false);
+		peers.disconnectAndRemove(pn, true, false, false);
 	}
 
 	public void onConnectedPeer() {
@@ -5979,9 +5955,9 @@ public class Node implements TimeSkewDetectorCallback {
 	public int getTotalRunningUIDsAlt() {
 		synchronized(runningUIDs) {
 			return this.runningCHKGetUIDsRT.size() + this.runningCHKPutUIDsRT.size() + this.runningSSKGetUIDsRT.size() +
-			this.runningSSKGetUIDsRT.size() + this.runningSSKOfferReplyUIDsRT.size() + this.runningCHKOfferReplyUIDsRT.size() +
+			this.runningSSKPutUIDsRT.size() + this.runningSSKOfferReplyUIDsRT.size() + this.runningCHKOfferReplyUIDsRT.size() +
 			this.runningCHKGetUIDsBulk.size() + this.runningCHKPutUIDsBulk.size() + this.runningSSKGetUIDsBulk.size() +
-			this.runningSSKGetUIDsBulk.size() + this.runningSSKOfferReplyUIDsBulk.size() + this.runningCHKOfferReplyUIDsBulk.size();
+			this.runningSSKPutUIDsBulk.size() + this.runningSSKOfferReplyUIDsBulk.size() + this.runningCHKOfferReplyUIDsBulk.size();
 		}
 	}
 

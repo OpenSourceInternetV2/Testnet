@@ -40,7 +40,7 @@ import freenet.support.io.NativeThread;
  * is separated off into RequestSender so we get transfer coalescing
  * and both ends for free. 
  */
-public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.Listener {
+public class RequestHandler implements PrioRunnable, ByteCounter, RequestSenderListener {
 
 	private static volatile boolean logMINOR;
 
@@ -396,7 +396,7 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 	}
 
 	@Override
-	public void onRequestSenderFinished(int status, boolean fromOfferedKey) {
+	public void onRequestSenderFinished(int status, boolean fromOfferedKey, RequestSender rs) {
 		if(tag.hasSourceReallyRestarted()) {
 			Logger.normal(this, "requestor is gone, can't send terminal message");
 			applyByteCounts();
@@ -1072,5 +1072,17 @@ public class RequestHandler implements PrioRunnable, ByteCounter, RequestSender.
 	@Override
 	public int getPriority() {
 		return NativeThread.HIGH_PRIORITY;
+	}
+
+	@Override
+	public void onNotStarted(boolean internalError) {
+		// Impossible
+		assert(false);
+	}
+
+	@Override
+	public void onDataFoundLocally() {
+		// Can't happen.
+		assert(false);
 	}
 }

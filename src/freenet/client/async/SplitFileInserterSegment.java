@@ -332,9 +332,9 @@ public class SplitFileInserterSegment extends SendableInsert implements FECCallb
 		String compressorDescriptor = parent.ctx.compressorDescriptor;
 		if(persistent) {
 			if (deactivateParent)
-				container.activate(parent, 1);
+				container.deactivate(parent, 1);
 			if (deactivateParentCtx)
-				container.activate(parent.ctx, 1);
+				container.deactivate(parent.ctx, 1);
 		}
 		byte cryptoAlgorithm = getCryptoAlgorithm(container);
 		for(int i=0;i<dataBlocks.length;i++) {
@@ -535,6 +535,7 @@ public class SplitFileInserterSegment extends SendableInsert implements FECCallb
 
 	private boolean onEncode(int x, ClientCHK key, ObjectContainer container, final ClientContext context) {
 		if(logMINOR) Logger.minor(this, "Encoded block "+x+" on "+this);
+		boolean gotAllURIs = false;
 		synchronized (this) {
 			if (finished) {
 				if(logMINOR) Logger.minor(this, "Already finished");
@@ -558,42 +559,58 @@ public class SplitFileInserterSegment extends SendableInsert implements FECCallb
 				container.store(this);
 			if(logMINOR)
 				Logger.minor(this, "Blocks got URI: "+blocksGotURI+" of "+(dataBlocks.length + checkBlocks.length));
-			if (blocksGotURI != dataBlocks.length + checkBlocks.length)
-				return false;
-			// Double check
-			for (int i = 0; i < checkURIs.length; i++) {
-				if (checkURIs[i] == null) {
-					Logger.error(this, "Check URI " + i + " is null");
-					return false;
+			gotAllURIs = blocksGotURI != dataBlocks.length + checkBlocks.length;
+			if(gotAllURIs) {
+				// Double check
+				for (int i = 0; i < checkURIs.length; i++) {
+					if (checkURIs[i] == null) {
+						Logger.error(this, "Check URI " + i + " is null");
+						gotAllURIs = false;
+					}
 				}
-			}
-			for (int i = 0; i < dataURIs.length; i++) {
-				if (dataURIs[i] == null) {
-					Logger.error(this, "Data URI " + i + " is null");
-					return false;
+				for (int i = 0; i < dataURIs.length; i++) {
+					if (dataURIs[i] == null) {
+						Logger.error(this, "Data URI " + i + " is null");
+						gotAllURIs = false;
+					}
 				}
+				if(gotAllURIs)
+					hasURIs = true;
 			}
-			hasURIs = true;
+			if(!(getCHKOnly || hasURIs)) return false;
 		}
 		if(persistent) {
 			container.activate(parent, 1);
 			container.store(this);
 		}
-		if(!persistent) {
-			context.mainExecutor.execute(new Runnable() {
-
-				@Override
-				public void run() {
-					parent.segmentHasURIs(SplitFileInserterSegment.this, null, context);
-				}
-				
-			});
-		} else {
-			parent.segmentHasURIs(this, container, context);
+		if(gotAllURIs) {
+			if(!persistent) {
+				context.mainExecutor.execute(new Runnable() {
+					
+					@Override
+					public void run() {
+						parent.segmentHasURIs(SplitFileInserterSegment.this, null, context);
+					}
+					
+				});
+			} else {
+				parent.segmentHasURIs(this, container, context);
+			}
+		}
+		if(getCHKOnly) {
+			byte cryptoAlgorithm = getCryptoAlgorithm(container);
+			// FIXME refactor onSuccess to avoid creating the bucket.
+			// Sometimes shadowing will fail and creating the bucket will involve copying. This is bad!
+			try {
+				BlockItem block = getBlockItem(container, context, x, cryptoAlgorithm);
+				onSuccess(block, container, context);
+			} catch (IOException e) {
+				fail(new InsertException(InsertException.BUCKET_ERROR, e, null), container, context);
+			}
 		}
 		if(persistent)
 			container.deactivate(parent, 1);
-		return true;
+		return gotAllURIs;
 	}
 
 	public synchronized boolean isFinished() {
@@ -1256,6 +1273,11 @@ public class SplitFileInserterSegment extends SendableInsert implements FECCallb
 				req.onInsertSuccess(context);
 				return true;
 			}
+		
+		@Override
+		public boolean sendIsBlocking() {
+			return true;
+		}
 
 
 	}

@@ -16,6 +16,7 @@ import java.util.LinkedList;
 import org.tanukisoftware.wrapper.WrapperManager;
 
 import freenet.client.filter.HTMLFilter;
+import freenet.client.filter.LinkFilterExceptionProvider;
 import freenet.clients.http.FProxyFetchInProgress.REFILTER_POLICY;
 import freenet.clients.http.PageMaker.THEME;
 import freenet.clients.http.bookmark.BookmarkManager;
@@ -57,7 +58,7 @@ import freenet.support.io.NativeThread;
  * 
  * Provide a HTTP server for FProxy
  */
-public final class SimpleToadletServer implements ToadletContainer, Runnable {
+public final class SimpleToadletServer implements ToadletContainer, Runnable, LinkFilterExceptionProvider {
 	/** List of urlPrefix / Toadlet */ 
 	private final LinkedList<ToadletElement> toadlets;
 	private static class ToadletElement {
@@ -895,22 +896,15 @@ public final class SimpleToadletServer implements ToadletContainer, Runnable {
 
 		// Show the wizard until dismissed by the user (See bug #2624)
 		if(core != null && core.node != null && !fproxyHasCompletedWizard) {
-			if(!(core.node.isOpennetEnabled() || core.node.getPeerNodes().length > 0)) {
-
-				//If the user has not completed the wizard, only allow access to the wizard and static
-				//resources. Anything else redirects to the first page of the wizard.
-				if (!(path.startsWith(FirstTimeWizardToadlet.TOADLET_URL) ||
-				        path.startsWith(StaticToadlet.ROOT_URL) ||
-				        path.startsWith(ExternalLinkToadlet.PATH) ||
-				        path.equals("/favicon.ico"))) {
-					try {
-						throw new PermanentRedirectException(new URI(null, null, null, -1, FirstTimeWizardToadlet.TOADLET_URL, uri.getQuery(), null));
-					} catch(URISyntaxException e) { throw new Error(e); }
-				}
-				
-			} else {
-				// Assume it's okay.
-				fproxyHasCompletedWizard = true;
+			//If the user has not completed the wizard, only allow access to the wizard and static
+			//resources. Anything else redirects to the first page of the wizard.
+			if (!(path.startsWith(FirstTimeWizardToadlet.TOADLET_URL) ||
+				path.startsWith(StaticToadlet.ROOT_URL) ||
+				path.startsWith(ExternalLinkToadlet.PATH) ||
+				path.equals("/favicon.ico"))) {
+				try {
+					throw new PermanentRedirectException(new URI(null, null, null, -1, FirstTimeWizardToadlet.TOADLET_URL, uri.getQuery(), null));
+				} catch(URISyntaxException e) { throw new Error(e); }
 			}
 		}
 
@@ -1202,6 +1196,27 @@ public final class SimpleToadletServer implements ToadletContainer, Runnable {
 		sb.append(this.port);
 		sb.append("/");
 		return sb.toString();
+	}
+
+	//
+	// LINKFILTEREXCEPTIONPROVIDER METHODS
+	//
+
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public boolean isLinkExcepted(URI link) {
+		Toadlet toadlet = null;
+		try {
+			toadlet = findToadlet(link);
+		} catch (PermanentRedirectException pre1) {
+			/* ignore. */
+		}
+		if (toadlet instanceof LinkFilterExceptedToadlet) {
+			return ((LinkFilterExceptedToadlet) toadlet).isLinkExcepted(link);
+		}
+		return false;
 	}
 
 }

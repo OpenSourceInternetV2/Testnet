@@ -383,6 +383,7 @@ public class ClientGet extends ClientRequest implements ClientGetCallback, Clien
 				try {
 					BucketTools.copy(data, returnBucket);
 				} catch (IOException e) {
+					Logger.error(this, "Data != returnBucket and then failed to copy to "+returnBucket);
 					data.free();
 					returnBucket.free();
 					if(persistenceType == PERSIST_FOREVER) {
@@ -655,7 +656,19 @@ public class ClientGet extends ClientRequest implements ClientGetCallback, Clien
 			container.activate(targetFile, 5);
 			container.activate(tempFile, 5);
 		}
-		return new PersistentGet(identifier, uri, verbosity, priorityClass, returnType, persistenceType, targetFile, tempFile, clientToken, client.isGlobalQueue, started, fctx.maxNonSplitfileRetries, binaryBlob, fctx.maxOutputLength);
+		return new PersistentGet(identifier, uri, verbosity, priorityClass, returnType, persistenceType, targetFile, tempFile, clientToken, client.isGlobalQueue, started, fctx.maxNonSplitfileRetries, binaryBlob, fctx.maxOutputLength, isRealTime());
+	}
+	
+	// FIXME code duplication: ClientGet ClientPut ClientPutDir
+	// FIXME maybe move to ClientRequest as final protected?
+	private boolean isRealTime() {
+		// FIXME: remove debug code
+		if (lowLevelClient == null) {
+			// This can happen but only due to data corruption - old databases on which various bugs have resulted in it getting deleted, and also possibly failed deletions.
+			Logger.error(this, "lowLevelClient == null", new Exception("error"));
+			return false;
+		}
+		return lowLevelClient.realTimeFlag();
 	}
 
 	@Override
