@@ -76,7 +76,7 @@ public class FileLoggerHook extends LoggerHook implements Closeable {
 		uname = "unknown";
 	}
 
-	static synchronized final void getUName() {
+	static synchronized void getUName() {
 		if(!uname.equals("unknown")) return;
 		System.out.println("Getting uname for logging");
 		try {

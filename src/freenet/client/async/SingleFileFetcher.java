@@ -11,6 +11,7 @@ import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.net.MalformedURLException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -337,6 +338,9 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 	 * Handle the current metadata. I.e. do something with it: transition to a splitfile, look up a manifest, etc.
 	 * LOCKING: Synchronized as it changes so many variables; if we want to write the structure to disk, we don't
 	 * want this running at the same time.
+	 * LOCKING: Therefore it should not directly call e.g. onFailed, innerWrapHandleMetadata, other stuff that might 
+	 * cause lots of stuff to happen on other objects, eventually ClientRequestScheduler gets locked -> deadlock. This is
+	 * irrelevant for persistent requests however, as they are single thread.
 	 * @throws FetchException
 	 * @throws MetadataParseException
 	 * @throws ArchiveFailureException
@@ -750,8 +754,20 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 				// We must transition to the sub-fetcher so that if the request is cancelled, it will get deleted.
 				parent.onTransition(this, f, container);
 				
-				f.innerWrapHandleMetadata(true, container, context);
-				if(persistent) container.deactivate(f, 1);
+				if(persistent) {
+					f.innerWrapHandleMetadata(true, container, context);
+					container.deactivate(f, 1);
+				} else {
+					// Break locks. Must not call onFailure(), etc, from within SFF lock.
+					context.mainExecutor.execute(new Runnable() {
+
+						@Override
+						public void run() {
+							f.innerWrapHandleMetadata(true, container, context);
+						}
+						
+					});
+				}
 				return;
 			} else if(metadata.isSingleFileRedirect()) {
 				if(logMINOR) Logger.minor(this, "Is single-file redirect");
@@ -809,6 +825,11 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 				this.deleteFetchContext = false;
 				if((redirectedKey instanceof ClientCHK) && !((ClientCHK)redirectedKey).isMetadata()) {
 					rcb.onBlockSetFinished(this, container, context);
+					byte [] redirectedCryptoKey = ((ClientCHK)redirectedKey).getCryptoKey();
+					if (key instanceof ClientCHK && !Arrays.equals(
+							((ClientCHK)key).getCryptoKey(),
+							redirectedCryptoKey))
+						redirectedCryptoKey = null;
 					// not splitfile, synthesize CompatibilityMode event
 					if (metadata.getParsedVersion() == 0)
 						rcb.onSplitfileCompatibilityMode(
@@ -822,7 +843,7 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 						rcb.onSplitfileCompatibilityMode(
 								CompatibilityMode.COMPAT_1255,
 								CompatibilityMode.COMPAT_1255,
-								null, // FIXME can we use the block key? Only if the parent was a CHK with the same override, or the parent was an SSK.
+								redirectedCryptoKey,
 								!((ClientCHK)redirectedKey).isCompressed(),
 								true, true,
 								container, context);
@@ -830,7 +851,7 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 						rcb.onSplitfileCompatibilityMode(
 								CompatibilityMode.COMPAT_UNKNOWN,
 								CompatibilityMode.COMPAT_UNKNOWN,
-								null, // FIXME can we use the block key? Only if the parent was a CHK with the same override, or the parent was an SSK.
+								redirectedCryptoKey,
 								!((ClientCHK)redirectedKey).isCompressed(),
 								true, true,
 								container, context);
@@ -971,7 +992,7 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 		decompressors.add(codec);
 	}
 
-	private void fetchArchive(boolean forData, Metadata meta, String element, ArchiveExtractCallback callback, final ObjectContainer container, ClientContext context) throws FetchException, MetadataParseException, ArchiveFailureException, ArchiveRestartException {
+	private void fetchArchive(boolean forData, Metadata meta, String element, ArchiveExtractCallback callback, final ObjectContainer container, final ClientContext context) throws FetchException, MetadataParseException, ArchiveFailureException, ArchiveRestartException {
 		if(logMINOR) Logger.minor(this, "fetchArchive()");
 		// Fetch the archive
 		// How?
@@ -995,10 +1016,23 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 		if(persistent) container.activate(parent, 1);
 		parent.onTransition(this, f, container);
 		
-		f.innerWrapHandleMetadata(true, container, context);
-		if(persistent) container.deactivate(f, 1);
+		if(!persistent) {
+			// Break locks. Must not call onFailure(), etc, from within SFF lock.
+			context.mainExecutor.execute(new Runnable() {
+
+				@Override
+				public void run() {
+					f.innerWrapHandleMetadata(true, container, context);
+				}
+				
+			});
+		} else {
+			f.innerWrapHandleMetadata(true, container, context);
+			container.deactivate(f, 1);
+		}
 	}
 
+	// LOCKING: If transient, DO NOT call this method from within handleMetadata.
 	protected void innerWrapHandleMetadata(boolean notFinalizedSize, ObjectContainer container, ClientContext context) {
 		try {
 			handleMetadata(container, context);
@@ -1241,6 +1275,8 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 				cbWasActive = container.ext().isActive(rcb);
 				container.activate(rcb, 1);
 			}
+			// This is fetching an archive, which may or may not contain the file we are looking for (it includes metadata).
+			// So we are definitely not the bottom layer nor definitive.
 			rcb.onSplitfileCompatibilityMode(min, max, splitfileKey, dontCompress, false, false, container, context);
 			if(!wasActive)
 				container.deactivate(SingleFileFetcher.this, 1);
@@ -1426,6 +1462,8 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 				cbWasActive = container.ext().isActive(rcb);
 				container.activate(rcb, 1);
 			}
+			// Pass through definitiveAnyway as the top block may include the details.
+			// Hence we can get them straight away rather than waiting for the bottom layer.
 			rcb.onSplitfileCompatibilityMode(min, max, splitfileKey, dontCompress, false, definitiveAnyway, container, context);
 			if(!wasActive)
 				container.deactivate(SingleFileFetcher.this, 1);

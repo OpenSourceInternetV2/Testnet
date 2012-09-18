@@ -254,7 +254,7 @@ public class TestnetStatusUploader {
 			fs.writeTo(w);
 		} else if(command.equals("GetConnections")) {
 			w.write("Connections\n");
-			PeerNode[] peers = node.peers.myPeers;
+			PeerNode[] peers = node.peers.myPeers();
 			SimpleFieldSet fs = new SimpleFieldSet(true);
 			int x = 0;
 			for(PeerNode p : peers) {

@@ -67,7 +67,7 @@ public class ClientPutDir extends ClientPutBase {
 
 	public ClientPutDir(FCPConnectionHandler handler, ClientPutDirMessage message, 
 			HashMap<String, Object> manifestElements, boolean wasDiskPut, FCPServer server, ObjectContainer container) throws IdentifierCollisionException, MalformedURLException {
-		super(checkEmptySSK(message.uri, "site", server.core.clientContext), message.identifier, message.verbosity, null,
+		super(checkEmptySSK(message.uri, message.targetFilename != null ? message.targetFilename : "site", server.core.clientContext), message.identifier, message.verbosity, null,
 				handler, message.priorityClass, message.persistenceType, message.clientToken,
 				message.global, message.getCHKOnly, message.dontCompress, message.localRequestOnly, message.maxRetries, message.earlyEncode, message.canWriteClientCache, message.forkOnCacheable, message.compressorDescriptor, message.extraInsertsSingleBlock, message.extraInsertsSplitfileHeaderBlock, message.realTimeFlag, message.compatibilityMode, server, container);
 		logMINOR = Logger.shouldLog(LogLevel.MINOR, this);
@@ -189,7 +189,7 @@ public class ClientPutDir extends ClientPutBase {
 			putter = new DefaultManifestPutter(this,
 					manifestElements, priorityClass, uri, defaultName, ctx, getCHKOnly,
 					lowLevelClient,
-					earlyEncode, persistenceType == PERSIST_FOREVER, container, context);
+					earlyEncode, persistenceType == PERSIST_FOREVER, overrideSplitfileCryptoKey, container, context);
 			break;
 		default:
 			putter = new SimpleManifestPutter(this, 

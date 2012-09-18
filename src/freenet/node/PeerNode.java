@@ -97,6 +97,9 @@ import freenet.support.transport.ip.IPUtil;
  * packet numbers when this happens. Hence we separate a lot of
  * code into SessionKey, which handles all communications to and
  * from this peer over the duration of a single key.
+ * 
+ * LOCKING: Can hold PeerManager and then lock PeerNode. Cannot hold
+ * PeerNode and then lock PeerManager.
  */
 public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 
@@ -262,9 +265,9 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	/** Time after which we log message requeues while rate limiting */
 	private long nextMessageRequeueLogTime;
 	/** Interval between rate limited message requeue logs (in milliseconds) */
-	private long messageRequeueLogRateLimitInterval = 1000;
+	private static final long messageRequeueLogRateLimitInterval = 1000;
 	/** Number of messages to be requeued after which we rate limit logging of such */
-	private int messageRequeueLogRateLimitThreshold = 15;
+	private static final int messageRequeueLogRateLimitThreshold = 15;
 	/** Version of the node */
 	private String version;
 	/** Total input */
@@ -448,6 +451,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		if(fromLocal || fromAnonymousInitiator) noSig = true;
 		myRef = new WeakReference<PeerNode>(this);
 		this.checkStatusAfterBackoff = new PeerNodeBackoffStatusChecker(myRef);
+		if(mangler == null) throw new NullPointerException();
 		this.outgoingMangler = mangler;
 		this.node = node2;
 		this.crypto = crypto;
@@ -1148,13 +1152,16 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	@Override
 	public MessageItem sendAsync(Message msg, AsyncMessageCallback cb, ByteCounter ctr) throws NotConnectedException {
 		if(ctr == null)
-			Logger.error(this, "Bytes not logged", new Exception("debug"));
+			Logger.error(this, "ByteCounter null, so bandwidth usage cannot be logged. Refusing to send.", new Exception("debug"));
 		if(logMINOR)
 			Logger.minor(this, "Sending async: " + msg + " : " + cb + " on " + this+" for "+node.getDarknetPortNumber()+" priority "+msg.getPriority());
 		if(!isConnected()) {
 			if(cb != null)
 				cb.disconnected();
 			throw new NotConnectedException();
+		}
+		if(msg.getSource() != null) {
+			Logger.error(this, "Messages should NOT be relayed as-is, they should always be re-created to clear any sub-messages etc, see comments in Message.java!: "+msg, new Exception("error"));
 		}
 		addToLocalNodeSentMessagesToStatistic(msg);
 		MessageItem item = new MessageItem(msg, cb == null ? null : new AsyncMessageCallback[]{cb}, ctr);
@@ -1245,7 +1252,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			String time = TimeUtil.formatTime(FNPPacketMangler.MAX_SESSION_KEY_REKEYING_DELAY);
 			System.err.println("The peer (" + this + ") has been asked to rekey " + time + " ago... force disconnect.");
 			Logger.error(this, "The peer (" + this + ") has been asked to rekey " + time + " ago... force disconnect.");
-			forceDisconnect(false);
+			forceDisconnect();
 		} else if (shouldReturn || hasLiveHandshake(now)) {
 			return;
 		} else if(shouldRekey) {
@@ -1281,11 +1288,26 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	
 	/**
 	* Disconnected e.g. due to not receiving a packet for ages.
-	* @param dumpMessageQueue If true, clear the messages-to-send queue.
-	* @param dumpTrackers If true, dump the SessionKey's.
+	* @param dumpMessageQueue If true, clear the messages-to-send queue, and
+	* change the bootID so even if we reconnect the other side will know that
+	* a disconnect happened. If false, don't clear the messages yet. They 
+	* will be cleared after an hour if the peer is disconnected at that point.
+	* @param dumpTrackers If true, dump the SessionKey's (i.e. dump the
+	* cryptographic data so we don't understand any packets they send us).
+	* <br>
+	* Possible arguments:<ul>
+	* <li>true, true => dump everything, immediate disconnect</li>
+	* <li>true, false => dump messages but keep trackers so we can 
+	* acknowledge messages on their end for a while.</li>
+	* <li>false, false => tell the rest of the node that we have 
+	* disconnected but do not immediately drop messages, continue to 
+	* respond to their messages.</li>
+	* <li>false, true => dump crypto but keep messages. DOES NOT MAKE 
+	* SENSE!!! DO NOT USE!!! </ul>
 	* @return True if the node was connected, false if it was not.
 	*/
 	public boolean disconnected(boolean dumpMessageQueue, boolean dumpTrackers) {
+		assert(!((!dumpMessageQueue) && dumpTrackers)); // Invalid combination!
 		final long now = System.currentTimeMillis();
 		if(isRealConnection())
 			Logger.normal(this, "Disconnected " + this, new Exception("debug"));
@@ -1357,6 +1379,8 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		if(peers.havePeer(this))
 			setPeerNodeStatus(now);
 		if(!dumpMessageQueue) {
+			// Wait for a while and then drop the messages if we haven't
+			// reconnected.
 			node.getTicker().queueTimedJob(new Runnable() {
 				@Override
 				public void run() {
@@ -1364,7 +1388,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 							timeLastDisconnect == now) {
 						PacketFormat oldPacketFormat = null;
 						synchronized(this) {
-							if(!isConnected) return;
+							if(isConnected) return;
 							// Reset the boot ID so that we get different trackers next time.
 							myBootID = node.fastWeakRandom.nextLong();
 							oldPacketFormat = packetFormat;
@@ -1404,9 +1428,9 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	}
 
 	@Override
-	public void forceDisconnect(boolean purge) {
+	public void forceDisconnect() {
 		Logger.error(this, "Forcing disconnect on " + this, new Exception("debug"));
-		disconnected(purge, true); // always dump trackers, maybe dump messages
+		disconnected(true, true); // always dump trackers, maybe dump messages
 	}
 
 	/**
@@ -1835,6 +1859,15 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		}
 	}
 
+	/**
+	 * Determines the degree of the peer via the locations of its peers it provides.
+	 * @return The number of peers this peer reports having, or 0 if this peer does not provide that information.
+	 */
+	public synchronized int getDegree() {
+		if (currentPeersLocation == null) return 0;
+		return currentPeersLocation.length;
+	}
+
 	public void updateLocation(double newLoc, double[] newLocs) {
 		if(newLoc < 0.0 || newLoc > 1.0) {
 			Logger.error(this, "Invalid location update for " + this+ " ("+newLoc+')', new Exception("error"));
@@ -1933,7 +1966,6 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	}
 
 	private void setDetectedPeer(Peer newPeer) {
-		// Only clear lastAttemptedHandshakeIPUpdateTime if we have a new IP.
 		// Also, we need to call .equals() to propagate any DNS lookups that have been done if the two have the same domain.
 		Peer p = newPeer;
 		newPeer = newPeer.dropHostName();
@@ -1946,6 +1978,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			if((newPeer != null) && ((oldPeer == null) || !oldPeer.equals(newPeer))) {
 				this.detectedPeer = newPeer;
 				updateShortToString();
+				// IP has changed, it is worth looking up the DNS address again.
 				this.lastAttemptedHandshakeIPUpdateTime = 0;
 				if(!isConnected)
 					return;
@@ -2129,11 +2162,6 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			routable = false;
 			//FIXME: It looks like bogusNoderef will just be set to false a few lines later...
 		} else if(reverseInvalidVersion()) {
-			try {
-				node.setNewestPeerLastGoodVersion(Version.getArbitraryBuildNumber(getLastGoodVersion(), Version.lastGoodBuild()));
-			} catch(NumberFormatException e) {
-			// ignore
-			}
 			Logger.normal(this, "Not routing traffic to " + this + " - reverse invalid version " + Version.getVersionString() + " for peer's lastGoodversion: " + getLastGoodVersion());
 			newer = true;
 		} else
@@ -2455,14 +2483,24 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		if(!node.enableARKs) return;
 		Logger.minor(this, "Stopping ARK fetcher for " + this + " : " + myARK);
 		// FIXME any way to reduce locking here?
+		USKRetriever ret;
 		synchronized(arkFetcherSync) {
 			if(arkFetcher == null) {
 				if(logMINOR) Logger.minor(this, "ARK fetcher not running for "+this);
 				return;
 			}
-			node.clientCore.uskManager.unsubscribeContent(myARK, this.arkFetcher, true);
+			ret = arkFetcher;
 			arkFetcher = null;
 		}
+		final USKRetriever unsub = ret;
+		node.executor.execute(new Runnable() {
+
+			@Override
+			public void run() {
+				node.clientCore.uskManager.unsubscribeContent(myARK, unsub, true);
+			}
+			
+		});
 	}
 
 
@@ -2896,6 +2934,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 				if(!Arrays.equals(oldPeers, nominalPeer.toArray(new Peer[nominalPeer.size()]))) {
 					changedAnything = true;
 					if(logMINOR) Logger.minor(this, "Got new physical.udp for "+this+" : "+Arrays.toString(nominalPeer.toArray()));
+					// Look up the DNS names if any ASAP
 					lastAttemptedHandshakeIPUpdateTime = 0;
 					// Clear nonces to prevent leak. Will kill any in-progress connect attempts, but that is okay because
 					// either we got an ARK which changed our peers list, or we just connected.
@@ -2935,8 +2974,17 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 
 		if(parseARK(fs, false, forDiffNodeRef))
 			changedAnything = true;
-		if(shouldUpdatePeerCounts)
-			node.peers.updatePMUserAlert();
+		if(shouldUpdatePeerCounts) {
+			node.executor.execute(new Runnable() {
+
+				@Override
+				public void run() {
+					node.peers.updatePMUserAlert();
+				}
+				
+			});
+
+		}
 		return changedAnything;
 	}
 
@@ -3882,8 +3930,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 			peerNodeStatus = getPeerNodeStatus(now, localRoutingBackedOffUntilRT, localRoutingBackedOffUntilBulk, averagePingTime() > threshold, noLoadStats);
 
 			if(peerNodeStatus != oldPeerNodeStatus && recordStatus()) {
-				peers.removePeerNodeStatus(oldPeerNodeStatus, this, noLog);
-				peers.addPeerNodeStatus(peerNodeStatus, this, noLog);
+				peers.changePeerNodeStatus(this, oldPeerNodeStatus, peerNodeStatus, noLog);
 			}
 
 		}
@@ -4695,6 +4742,8 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	 * parts of our node reference not needed for handshake.
 	 * Should only be called by completedHandshake() after we're happy
 	 * with the connection
+	 * 
+	 * FIXME this should be sent when our noderef changes.
 	 */
 	protected void sendConnectedDiffNoderef() {
 		SimpleFieldSet fs = new SimpleFieldSet(true);
@@ -4721,26 +4770,6 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 		}
 	}
 
-	int assignedNetworkID;
-	int providedNetworkID;
-	NetworkIDManager.PeerNetworkGroup networkGroup;
-
-	void handleFNPNetworkID(Message m) {
-		int got=m.getInt(DMT.UID);
-		if (logMINOR) Logger.minor(this, "now peer thinks he is in network "+got);
-		if (providedNetworkID!=got && assignedNetworkID!=got) {
-			providedNetworkID=got;
-			node.netid.onPeerNodeChangedNetworkID(this);
-		} else {
-			providedNetworkID=got;
-		}
-	}
-
-	void sendFNPNetworkID(ByteCounter ctr) throws NotConnectedException {
-		if (assignedNetworkID!=0)
-			sendAsync(DMT.createFNPNetworkID(assignedNetworkID), null, ctr);
-	}
-
 	@Override
 	public boolean shouldThrottle() {
 		return shouldThrottle(getPeer(), node);
@@ -4757,11 +4786,11 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	static final double MAX_RTO = 60*1000;
 	static final double MIN_RTO = 1000;
 	private int consecutiveRTOBackoffs;
-	
+
 	// Clock generally has 20ms granularity or better, right?
 	// FIXME determine the clock granularity.
-	private static int CLOCK_GRANULARITY = 20;
-	
+	private static final int CLOCK_GRANULARITY = 20;
+
 	@Override
 	public void reportPing(long t) {
 		this.pingAverage.report(t);
@@ -4968,6 +4997,7 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 	private int countFailedRevocationTransfers;
 
 	public void failedRevocationTransfer() {
+		// Something odd happened, possibly a disconnect, maybe looking up the DNS names will help?
 		lastAttemptedHandshakeIPUpdateTime = System.currentTimeMillis();
 		countFailedRevocationTransfers++;
 	}
@@ -6348,9 +6378,9 @@ public abstract class PeerNode implements USKRetrieverCallback, BasePeerNode {
 
 	private int consecutiveGuaranteedRejectsRT = 0;
 	private int consecutiveGuaranteedRejectsBulk = 0;
-	
-	private int CONSECUTIVE_REJECTS_MANDATORY_BACKOFF = 5;
-	
+
+	private static final int CONSECUTIVE_REJECTS_MANDATORY_BACKOFF = 5;
+
 	/** After 5 consecutive GUARANTEED soft rejections, we enter mandatory backoff.
 	 * The reason why we don't immediately enter mandatory backoff is as follows:
 	 * PROBLEM: Requests could have completed between the time when the request 

@@ -60,6 +60,7 @@ public abstract class ClientPutDirMessage extends BaseDataCarryingMessage {
 	final boolean localRequestOnly;
 	final boolean realTimeFlag;
 	final short manifestPutterType;
+	final String targetFilename;
 	
 	public ClientPutDirMessage(SimpleFieldSet fs) throws MessageInvalidException {
 		identifier = fs.get("Identifier");
@@ -162,6 +163,7 @@ public abstract class ClientPutDirMessage extends BaseDataCarryingMessage {
 		}
 		canWriteClientCache = fs.getBoolean("WriteToClientCache", false);
 		clientToken = fs.get("ClientToken");
+		targetFilename = fs.get("TargetFilename");
 		earlyEncode = Fields.stringToBool(fs.get("EarlyEncode"), false);
 		String codecs = fs.get("Codecs");
 		if (codecs != null) {
@@ -183,15 +185,23 @@ public abstract class ClientPutDirMessage extends BaseDataCarryingMessage {
 		extraInsertsSplitfileHeaderBlock = fs.getInt("ExtraInsertsSplitfileHeaderBlock", HighLevelSimpleClientImpl.EXTRA_INSERTS_SPLITFILE_HEADER);
 		realTimeFlag = fs.getBoolean("RealTimeFlag", false);
 		String manifestPutter = fs.get("ManifestPutter");
-		if(manifestPutter == null || manifestPutter.equalsIgnoreCase("simple")) {
-			manifestPutterType = ManifestPutter.MANIFEST_SIMPLEPUTTER;
-		} else if(manifestPutter.equalsIgnoreCase("default")) {
-			manifestPutterType = ManifestPutter.MANIFEST_DEFAULTPUTTER;
-			if(overrideSplitfileCryptoKey != null)
-				throw new MessageInvalidException(ProtocolErrorMessage.INVALID_FIELD, "OverrideSplitfileCryptoKey can only be used with the simple ManifestPutter", identifier, global);
-		} else {
+		short manifestType;
+		if(persistenceType == ClientRequest.PERSIST_FOREVER)
+			// Unfortunately default isn't known to work with persistent inserts yet.
+			// It might work but is probably leaky and buggy. 
+			// FIXME Make default work with persistent site inserts then change this.
+			// FIXME Make default work with overrideSplitfileCryptoKey - doesn't it already???
+			manifestType = ManifestPutter.MANIFEST_SIMPLEPUTTER;
+		else
+			manifestType = ManifestPutter.MANIFEST_DEFAULTPUTTER;
+		if("simple".equalsIgnoreCase(manifestPutter)) {
+			manifestType = ManifestPutter.MANIFEST_SIMPLEPUTTER;
+		} else if("default".equalsIgnoreCase(manifestPutter)) {
+			manifestType = ManifestPutter.MANIFEST_DEFAULTPUTTER;
+		} else if(manifestPutter != null) {
 			throw new MessageInvalidException(ProtocolErrorMessage.INVALID_FIELD, "Invalid ManifestPutter value: "+manifestPutter, identifier, global);
 		}
+		manifestPutterType = manifestType;
 		if(manifestPutterType != ManifestPutter.MANIFEST_SIMPLEPUTTER && (persistenceType != ClientRequest.PERSIST_CONNECTION && persistenceType != ClientRequest.PERSIST_REBOOT)) {
 			throw new MessageInvalidException(ProtocolErrorMessage.INVALID_FIELD, "Only Connection or Reboot persistenace can only be used with the default ManifestPutter", identifier, global);
 		}

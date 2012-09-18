@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Stack;
 import java.util.Vector;
 
@@ -87,7 +88,7 @@ public abstract class BaseManifestPutter extends ManifestPutter {
 	static {
 		Logger.registerClass(BaseManifestPutter.class);
 	}
-
+	
 	/**
 	 * ArchivePutHandler - wrapper for ContainerInserter
 	 *
@@ -106,8 +107,7 @@ public abstract class BaseManifestPutter extends ManifestPutter {
 
 		@Override
 		public void onEncode(BaseClientKey key, ClientPutState state, ObjectContainer container, ClientContext context) {
-			if (logMINOR) Logger.minor(this, "onEncode(" + key + ") for " + this);
-			System.out.println("Got a URI: " + key.getURI().toString(false, false) + " for " + this);
+			if (logMINOR) Logger.minor(this, "onEncode(" + key.getURI().toString(false, false) + ") for " + this);
 
 			if(persistent) {
 				container.activate(key, 5);
@@ -176,8 +176,7 @@ public abstract class BaseManifestPutter extends ManifestPutter {
 
 		@Override
 		public void onEncode(BaseClientKey key, ClientPutState state, ObjectContainer container, ClientContext context) {
-			if (logMINOR) Logger.minor(this, "onEncode(" + key + ") for " + this);
-			System.out.println("Got a URI: " + key.getURI().toString(false, false) + " for " + this);
+			if (logMINOR) Logger.minor(this, "onEncode(" + key.getURI().toString(false, false) + ") for " + this);
 
 			if(persistent) {
 				container.activate(key, 5);
@@ -385,8 +384,7 @@ public abstract class BaseManifestPutter extends ManifestPutter {
 
 		@Override
 		public void onEncode(BaseClientKey key, ClientPutState state, ObjectContainer container, ClientContext context) {
-			if (logMINOR) Logger.minor(this, "onEncode(" + key + ") for " + this);
-			System.out.println("Got a URI: " + key.getURI().toString(false, false) + " for " + this);
+			if (logMINOR) Logger.minor(this, "onEncode(" + key.getURI().toString(false, false) + ") for " + this);
 
 			if (rootMetaPutHandler == this) {
 				finalURI = key.getURI();
@@ -740,7 +738,6 @@ public abstract class BaseManifestPutter extends ManifestPutter {
 		@Override
 		public void onTransition(ClientPutState oldState, ClientPutState newState, ObjectContainer container) {
 			if(newState == null) throw new NullPointerException();
-			Logger.error(this, "onTransition: cur=" + currentState + ", old=" + oldState + ", new=" + newState+" for "+this, new Exception("trace transition"));
 
 			// onTransition is *not* responsible for removing the old state, the caller is.
 			synchronized (this) {
@@ -979,6 +976,11 @@ public abstract class BaseManifestPutter extends ManifestPutter {
 		
 	}
 
+	private final static String[] defaultDefaultNames =
+		new String[] { "index.html", "index.htm", "default.html", "default.htm" };
+	// All the default names are in the root.
+	// Code will need to be changed if we have index/index.html or similar.
+	
 	/** if true top level metadata is a container */
 	private boolean containerMode = false;
 	/** if true top level metadata is a single chunk */
@@ -1028,7 +1030,7 @@ public abstract class BaseManifestPutter extends ManifestPutter {
 
 	public BaseManifestPutter(ClientPutCallback cb,
 			HashMap<String, Object> manifestElements, short prioClass, FreenetURI target, String defaultName,
-			InsertContext ctx, boolean getCHKOnly2, RequestClient clientContext, boolean earlyEncode, boolean randomiseCryptoKeys, ClientContext context) {
+			InsertContext ctx, boolean getCHKOnly2, RequestClient clientContext, boolean earlyEncode, boolean randomiseCryptoKeys, byte [] forceCryptoKey, ClientContext context) {
 		super(prioClass, clientContext);
 		if(client.persistent())
 			this.targetURI = target.clone();
@@ -1038,12 +1040,11 @@ public abstract class BaseManifestPutter extends ManifestPutter {
 		this.ctx = ctx;
 		this.getCHKOnly = getCHKOnly2;
 		this.earlyEncode = earlyEncode;
-		if(randomiseCryptoKeys) {
+		if(randomiseCryptoKeys && forceCryptoKey == null) {
 			forceCryptoKey = new byte[32];
 			context.random.nextBytes(forceCryptoKey);
-		} else {
-			forceCryptoKey = null;
 		}
+		this.forceCryptoKey = forceCryptoKey;
 		this.cryptoAlgorithm = Key.ALGO_AES_PCFB_256_SHA256;
 		runningPutHandlers = new HashSet<PutHandler>();
 		putHandlersWaitingForMetadata = new HashSet<PutHandler>();
@@ -1053,10 +1054,39 @@ public abstract class BaseManifestPutter extends ManifestPutter {
 		perContainerPutHandlersWaitingForMetadata = new HashMap<PutHandler, HashSet<PutHandler>>();
 		putHandlersTransformMap = new HashMap<PutHandler, HashMap<String, Object>>();
 		putHandlersArchiveTransformMap = new HashMap<ArchivePutHandler, Vector<PutHandler>>();
+		if(defaultName == null)
+			defaultName = findDefaultName(manifestElements, defaultName);
 		makePutHandlers(manifestElements, defaultName);
 		// builders are not longer needed after constructor
 		rootBuilder = null;
 		rootContainerBuilder = null;
+	}
+	
+	private String findDefaultName(HashMap<String, Object> manifestElements,
+			String defaultName) {
+		// Find the default name if it has not been set explicitly.
+		for(String name : defaultDefaultNames) {
+			Object o = manifestElements.get(name);
+			if(o == null) continue;
+			if(o instanceof HashMap) continue;
+			return name;
+		}
+		for(String name : defaultDefaultNames) {
+			boolean found = false;
+			for(Map.Entry<String, Object> entry : manifestElements.entrySet()) {
+				if(entry.getKey().equalsIgnoreCase(name)) {
+					found = true;
+					name = entry.getKey();
+					break;
+				}
+			}
+			if(!found) continue;
+			Object o = manifestElements.get(name);
+			if(o == null) continue;
+			if(o instanceof HashMap) continue;
+			return name;
+		}
+		return "";
 	}
 
 	public void start(ObjectContainer container, ClientContext context) throws InsertException {
@@ -1183,6 +1213,11 @@ public abstract class BaseManifestPutter extends ManifestPutter {
 	@Override
 	public synchronized boolean isFinished() {
 		return finished || cancelled;
+	}
+	
+	@Override
+	public byte[] getSplitfileCryptoKey() {
+		return forceCryptoKey;
 	}
 
 	private final DBJob runGotAllMetadata = new DBJob() {
@@ -1418,7 +1453,6 @@ public abstract class BaseManifestPutter extends ManifestPutter {
 	}
 
 	private void complete(ObjectContainer container, ClientContext context) {
-		new Error("TraceME complete()").printStackTrace();
 		// FIXME we could remove the put handlers after inserting all files but not having finished the insert of the manifest
 		// However it would complicate matters for no real gain in most cases...
 		// Also doing it this way means we don't need to worry about
@@ -1673,7 +1707,7 @@ public abstract class BaseManifestPutter extends ManifestPutter {
 	private synchronized boolean checkFetchable(PutHandler handler) {
 		//new Error("RefactorME").printStackTrace();
 		if (!putHandlersWaitingForFetchable.contains(handler)) {
-			throw new IllegalStateException("was not in putHandlersWaitingForFetchable!");
+			throw new IllegalStateException("was not in putHandlersWaitingForFetchable! : "+handler);
 		}
 		putHandlersWaitingForFetchable.remove(handler);
 		if(fetchable) return false;
@@ -1746,7 +1780,8 @@ public abstract class BaseManifestPutter extends ManifestPutter {
 			containerHandle2.start(container, context);
 		} else {
 			//System.out.println(" waiting m:"+perContainerPutHandlersWaitingForMetadata.get(containerHandle2).size()+" F:"+perContainerPutHandlersWaitingForFetchable.get(containerHandle2).size() + " for "+containerHandle2);
-			System.out.println("(spc) waiting m:"+perContainerPutHandlersWaitingForMetadata.get(containerHandle2).size() + " for "+containerHandle2);
+			if(logMINOR)
+				Logger.minor(this, "(spc) waiting m:"+perContainerPutHandlersWaitingForMetadata.get(containerHandle2).size() + " for "+containerHandle2);
 		}
 	}
 

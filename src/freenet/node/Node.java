@@ -27,7 +27,6 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
-import java.util.Calendar;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -37,10 +36,8 @@ import java.util.Map;
 import java.util.MissingResourceException;
 import java.util.Random;
 import java.util.Set;
-import java.util.TimeZone;
 import java.util.Vector;
 
-import freenet.support.math.MersenneTwister;
 import org.tanukisoftware.wrapper.WrapperManager;
 
 import com.db4o.Db4o;
@@ -117,6 +114,8 @@ import freenet.node.SecurityLevels.NETWORK_THREAT_LEVEL;
 import freenet.node.SecurityLevels.PHYSICAL_THREAT_LEVEL;
 import freenet.node.fcp.FCPMessage;
 import freenet.node.fcp.FeedMessage;
+import freenet.node.probe.Listener;
+import freenet.node.probe.Type;
 import freenet.node.stats.DataStoreInstanceType;
 import freenet.node.stats.DataStoreStats;
 import freenet.node.stats.NotAvailNodeStoreStats;
@@ -124,7 +123,6 @@ import freenet.node.stats.StoreCallbackStats;
 import freenet.node.updater.NodeUpdateManager;
 import freenet.node.updater.UpdateDeployContext;
 import freenet.node.updater.UpdateDeployContext.CHANGED;
-import freenet.node.useralerts.BuildOldAgeUserAlert;
 import freenet.node.useralerts.ExtOldAgeUserAlert;
 import freenet.node.useralerts.MeaningfulNodeNameUserAlert;
 import freenet.node.useralerts.NotEnoughNiceLevelsUserAlert;
@@ -132,12 +130,14 @@ import freenet.node.useralerts.SimpleUserAlert;
 import freenet.node.useralerts.TimeSkewDetectedUserAlert;
 import freenet.node.useralerts.UserAlert;
 import freenet.pluginmanager.ForwardPort;
+import freenet.pluginmanager.PluginDownLoaderOfficialHTTPS;
 import freenet.pluginmanager.PluginManager;
 import freenet.pluginmanager.PluginStore;
 import freenet.store.BerkeleyDBFreenetStore;
 import freenet.store.BlockMetadata;
 import freenet.store.CHKStore;
 import freenet.store.FreenetStore;
+import freenet.store.FreenetStore.StoreType;
 import freenet.store.KeyCollisionException;
 import freenet.store.NullFreenetStore;
 import freenet.store.PubkeyStore;
@@ -146,17 +146,17 @@ import freenet.store.SSKStore;
 import freenet.store.SlashdotStore;
 import freenet.store.StorableBlock;
 import freenet.store.StoreCallback;
-import freenet.store.FreenetStore.StoreType;
+import freenet.store.saltedhash.ResizablePersistentIntBuffer;
 import freenet.store.saltedhash.SaltedHashFreenetStore;
 import freenet.support.Executor;
 import freenet.support.Fields;
 import freenet.support.HTMLNode;
 import freenet.support.HexUtil;
-import freenet.support.LRUQueue;
 import freenet.support.LogThresholdCallback;
 import freenet.support.Logger;
 import freenet.support.LoggerHook;
 import freenet.support.LoggerHook.InvalidThresholdException;
+import freenet.support.Logger.LogLevel;
 import freenet.support.OOMHandler;
 import freenet.support.PooledExecutor;
 import freenet.support.PrioritizedTicker;
@@ -165,7 +165,6 @@ import freenet.support.SimpleFieldSet;
 import freenet.support.SizeUtil;
 import freenet.support.Ticker;
 import freenet.support.TokenBucket;
-import freenet.support.Logger.LogLevel;
 import freenet.support.api.BooleanCallback;
 import freenet.support.api.IntCallback;
 import freenet.support.api.LongCallback;
@@ -175,6 +174,7 @@ import freenet.support.io.ArrayBucketFactory;
 import freenet.support.io.Closer;
 import freenet.support.io.FileUtil;
 import freenet.support.io.NativeThread;
+import freenet.support.math.MersenneTwister;
 import freenet.support.transport.ip.HostnameSyntaxException;
 
 /**
@@ -297,7 +297,6 @@ public class Node implements TimeSkewDetectorCallback {
 		});
 	}
 	private static MeaningfulNodeNameUserAlert nodeNameUserAlert;
-	private static BuildOldAgeUserAlert buildOldAgeUserAlert;
 	private static TimeSkewDetectedUserAlert timeSkewDetectedUserAlert;
 
 	public class NodeNameCallback extends StringCallback  {
@@ -508,7 +507,6 @@ public class Node implements TimeSkewDetectorCallback {
 
 	/** Stats */
 	public final NodeStats nodeStats;
-	public final NetworkIDManager netid;
 
 	/** Config object for the whole node. */
 	public final PersistentConfig config;
@@ -844,6 +842,16 @@ public class Node implements TimeSkewDetectorCallback {
 	private volatile boolean isPRNGReady = false;
 
 	private boolean storePreallocate;
+	
+	private boolean enableRoutedPing;
+
+	/**
+	 * Dispatches a probe request with the specified settings
+	 * @see freenet.node.probe.Probe#start(byte, long, Type, Listener)
+	 */
+	public void startProbe(final byte htl, final long uid, final Type type, final Listener listener) {
+		dispatcher.probe.start(htl, uid, type, listener);
+	}
 
 	/**
 	 * Read all storable settings (identity etc) from the node file.
@@ -1023,6 +1031,7 @@ public class Node implements TimeSkewDetectorCallback {
 		this.shutdownHook = SemiOrderedShutdownHook.get();
 		// Easy stuff
 		String tmp = "Initializing Node using Freenet Build #"+Version.buildNumber()+" r"+Version.cvsRevision()+" and freenet-ext Build #"+NodeStarter.extBuildNumber+" r"+NodeStarter.extRevisionNumber+" with "+System.getProperty("java.vendor")+" JVM version "+System.getProperty("java.version")+" running on "+System.getProperty("os.arch")+' '+System.getProperty("os.name")+' '+System.getProperty("os.version");
+		fixCertsFile();
 		Logger.normal(this, tmp);
 		System.out.println(tmp);
 		collector = new IOStatisticCollector();
@@ -1139,7 +1148,6 @@ public class Node implements TimeSkewDetectorCallback {
 			this.fastWeakRandom = weakRandom;
 
 		nodeNameUserAlert = new MeaningfulNodeNameUserAlert(this);
-		recentlyCompletedIDs = new LRUQueue<Long>();
 		this.config = config;
 		lm = new LocationManager(random, this);
 
@@ -1263,7 +1271,7 @@ public class Node implements TimeSkewDetectorCallback {
 
 		});
 
-		nodeConfig.register("defragDatabaseOnStartup", true, sortOrder++, false, true, "Node.defragDatabaseOnStartup", "Node.defragDatabaseOnStartupLong", new BooleanCallback() {
+		nodeConfig.register("defragDatabaseOnStartup", false, sortOrder++, false, true, "Node.defragDatabaseOnStartup", "Node.defragDatabaseOnStartupLong", new BooleanCallback() {
 
 			@Override
 			public Boolean get() {
@@ -1384,8 +1392,6 @@ public class Node implements TimeSkewDetectorCallback {
 			Closer.close(raf);
 		}
 		lastBootID = oldBootID;
-
-		buildOldAgeUserAlert = new BuildOldAgeUserAlert();
 
 		nodeConfig.register("disableProbabilisticHTLs", false, sortOrder++, true, false, "Node.disablePHTLS", "Node.disablePHTLSLong",
 				new BooleanCallback() {
@@ -2076,6 +2082,26 @@ public class Node implements TimeSkewDetectorCallback {
 		});
 		
 		storeUseSlotFilters = nodeConfig.getBoolean("storeUseSlotFilters");
+		
+		nodeConfig.register("storeSaltHashSlotFilterPersistenceTime", ResizablePersistentIntBuffer.DEFAULT_PERSISTENCE_TIME, sortOrder++, true, false, 
+				"Node.storeSaltHashSlotFilterPersistenceTime", "Node.storeSaltHashSlotFilterPersistenceTimeLong", new IntCallback() {
+
+					@Override
+					public Integer get() {
+						return ResizablePersistentIntBuffer.getPersistenceTime();
+					}
+
+					@Override
+					public void set(Integer val)
+							throws InvalidConfigValueException,
+							NodeNeedRestartException {
+						if(val >= -1)
+							ResizablePersistentIntBuffer.setPersistenceTime(val);
+						else
+							throw new InvalidConfigValueException(l10n("slotFilterPersistenceTimeError"));
+					}
+			
+		}, false);
 
 		nodeConfig.register("storeSaltHashResizeOnStart", false, sortOrder++, true, false,
 				"Node.storeSaltHashResizeOnStart", "Node.storeSaltHashResizeOnStartLong", new BooleanCallback() {
@@ -2264,8 +2290,6 @@ public class Node implements TimeSkewDetectorCallback {
 
 		if(databaseAwaitingPassword) createPasswordUserAlert();
 		if(notEnoughSpaceForAutoCrypt) createAutoCryptFailedUserAlert();
-
-		netid = new NetworkIDManager(this);
 
 		// Client cache
 
@@ -2570,11 +2594,34 @@ public class Node implements TimeSkewDetectorCallback {
 		}, true);
 
 		maxPacketSize = nodeConfig.getInt("maxPacketSize");
-		updateMTU();
 		
+		nodeConfig.register("enableRoutedPing", false, sortOrder++, true, false, "Node.enableRoutedPing", "Node.enableRoutedPingLong", new BooleanCallback() {
+
+			@Override
+			public Boolean get() {
+				synchronized(Node.this) {
+					return enableRoutedPing;
+				}
+			}
+
+			@Override
+			public void set(Boolean val) throws InvalidConfigValueException,
+					NodeNeedRestartException {
+				synchronized(Node.this) {
+					enableRoutedPing = val;
+				}
+			}
+			
+		});
+		enableRoutedPing = nodeConfig.getBoolean("enableRoutedPing");
+		
+		updateMTU();
+
+		/* Take care that no configuration options are registered after this point; they will not persist
+		 * between restarts.
+		 */
 		nodeConfig.finishedInitialization();
-		if(shouldWriteConfig)
-			config.store();
+		if(shouldWriteConfig) config.store();
 		writeNodeFile();
 
 		// Initialize the plugin manager
@@ -2618,6 +2665,35 @@ public class Node implements TimeSkewDetectorCallback {
 		System.out.println("Node constructor completed");
 	}
 
+	private void fixCertsFile() {
+		// Hack to update certificates file to fix update.cmd
+		File certs = new File(PluginDownLoaderOfficialHTTPS.certfileOld);
+		if(certs.exists()) {
+			long oldLength = certs.length();
+			try {
+				File tmpFile = File.createTempFile(PluginDownLoaderOfficialHTTPS.certfileOld, ".tmp", new File("."));
+				PluginDownLoaderOfficialHTTPS.writeCertsTo(tmpFile);
+				if(FileUtil.renameTo(tmpFile, certs)) {
+					long newLength = certs.length();
+					if(newLength != oldLength)
+						System.err.println("Updated "+certs+" so that update scripts will work");
+				} else {
+					if(certs.length() != tmpFile.length()) {
+						System.err.println("Cannot update "+certs+" : last-resort update scripts (in particular update.cmd on Windows) may not work");
+						File manual = new File(PluginDownLoaderOfficialHTTPS.certfileOld+".new");
+						manual.delete();
+						if(tmpFile.renameTo(manual))
+							System.err.println("Please delete "+certs+" and rename "+manual+" over it");
+						else
+							tmpFile.delete();
+					}
+				}
+			} catch (IOException e) {
+			}
+		}
+	}
+
+
 	/**
 	** Sets up a program directory using the config value defined by the given
 	** parameters.
@@ -2630,24 +2706,6 @@ public class Node implements TimeSkewDetectorCallback {
 		// forceWrite=true because currently it can't be changed on the fly, also for packages
 		installConfig.register(cfgKey, defaultValue, sortOrder, true, true, shortdesc, longdesc, dir.getStringCallback());
 		String dirName = installConfig.getString(cfgKey);
-		if (oldConfig != null) {
-			// TODO HACK FIXME remove this after the next few mandatory builds. current build is 1366
-			oldConfig.register(cfgKey, "nonexistent", sortOrder, true, false, shortdesc, longdesc, dir.getStringCallback());
-			String oldValue = oldConfig.getString(cfgKey);
-			if (!oldValue.equals("nonexistent")) {
-				System.err.println("migrating node." + cfgKey + " to node.install." + cfgKey + ": " + oldValue);
-				dirName = oldValue;
-				try {
-					installConfig.set(cfgKey, dirName);
-				} catch (NodeNeedRestartException e) {
-					// Ignore
-				} catch (InvalidConfigValueException e) {
-					// can't happen since we use the same config settings
-				}
-			}
-			oldConfig.removeOption(cfgKey);
-			// end TODO
-		}
 		try {
 			dir.move(dirName);
 		} catch (IOException e) {
@@ -3889,7 +3947,7 @@ public class Node implements TimeSkewDetectorCallback {
 				@Override
 				public void run() {
 					freenet.support.Logger.OSThread.logPID(this);
-					PeerNode[] nodes = peers.myPeers;
+					PeerNode[] nodes = peers.myPeers();
 					for(int i = 0; i < nodes.length; i++) {
 						PeerNode pn = nodes[i];
 						pn.updateVersionRoutablity();
@@ -5234,20 +5292,8 @@ public class Node implements TimeSkewDetectorCallback {
 		return sb.toString();
 	}
 
-	final LRUQueue<Long> recentlyCompletedIDs;
-
-	static final int MAX_RECENTLY_COMPLETED_IDS = 10*1000;
 	/** Length of signature parameters R and S */
 	static final int SIGNATURE_PARAMETER_LENGTH = 32;
-
-	/**
-	 * Has a request completed with this ID recently?
-	 */
-	public boolean recentlyCompleted(long id) {
-		synchronized (recentlyCompletedIDs) {
-			return recentlyCompletedIDs.contains(id);
-		}
-	}
 
 	private ArrayList<Long> completedBuffer = new ArrayList<Long>();
 
@@ -5260,16 +5306,13 @@ public class Node implements TimeSkewDetectorCallback {
 	 */
 	void completed(long id) {
 		Long[] list;
-		synchronized (recentlyCompletedIDs) {
-			recentlyCompletedIDs.push(id);
-			while(recentlyCompletedIDs.size() > MAX_RECENTLY_COMPLETED_IDS)
-				recentlyCompletedIDs.pop();
+		synchronized (completedBuffer) {
 			completedBuffer.add(id);
 			if(completedBuffer.size() < COMPLETED_THRESHOLD) return;
 			list = completedBuffer.toArray(new Long[completedBuffer.size()]);
 			completedBuffer.clear();
 		}
-		for(PeerNode pn : peers.myPeers) {
+		for(PeerNode pn : peers.myPeers()) {
 			if(!pn.isRoutingCompatible()) continue;
 			pn.removeUIDsFromMessageQueues(list);
 		}
@@ -5393,19 +5436,8 @@ public class Node implements TimeSkewDetectorCallback {
 		return this.getDarknetPortNumber();
 	}
 
-	public synchronized boolean setNewestPeerLastGoodVersion( int version ) {
-		if( version > buildOldAgeUserAlert.lastGoodVersion ) {
-			if( buildOldAgeUserAlert.lastGoodVersion == 0 ) {
-				clientCore.alerts.register(buildOldAgeUserAlert);
-			}
-			buildOldAgeUserAlert.lastGoodVersion = version;
-			return true;
-		}
-		return false;
-	}
-
-	public synchronized boolean isOudated() {
-		return (buildOldAgeUserAlert.lastGoodVersion > 0);
+	public boolean isOudated() {
+		return peers.isOutdated();
 	}
 
 	private Map<Integer, NodeToNodeMessageListener> n2nmListeners = new HashMap<Integer, NodeToNodeMessageListener>();
@@ -5577,18 +5609,18 @@ public class Node implements TimeSkewDetectorCallback {
 	}
 
 	public PeerNode[] getPeerNodes() {
-		return peers.myPeers;
+		return peers.myPeers();
 	}
 
 	public PeerNode[] getConnectedPeers() {
-		return peers.connectedPeers;
+		return peers.connectedPeers();
 	}
 
 	/**
 	 * Return a peer of the node given its ip and port, name or identity, as a String
 	 */
 	public PeerNode getPeerNode(String nodeIdentifier) {
-		PeerNode[] pn = peers.myPeers;
+		PeerNode[] pn = peers.myPeers();
 		for(int i=0;i<pn.length;i++)
 		{
 			Peer peer = pn[i].getPeer();
@@ -5661,7 +5693,7 @@ public class Node implements TimeSkewDetectorCallback {
 	// using the PacketSender/Ticker. Would save a few threads.
 
 	public int getNumARKFetchers() {
-		PeerNode[] p = peers.myPeers;
+		PeerNode[] p = peers.myPeers();
 		int x = 0;
 		for(int i=0;i<p.length;i++) {
 			if(p[i].isFetchingARK()) x++;
@@ -5722,7 +5754,7 @@ public class Node implements TimeSkewDetectorCallback {
 		return darknetCrypto.portNumber;
 	}
 
-	public int getOutputBandwidthLimit() {
+	public synchronized int getOutputBandwidthLimit() {
 		return outputBandwidthLimit;
 	}
 
@@ -5730,6 +5762,13 @@ public class Node implements TimeSkewDetectorCallback {
 		if(inputLimitDefault)
 			return outputBandwidthLimit * 4;
 		return inputBandwidthLimit;
+	}
+
+	/**
+	 * @return total datastore size in bytes.
+	 */
+	public synchronized long getStoreSize() {
+		return maxTotalDatastoreSize;
 	}
 
 	@Override
@@ -6370,6 +6409,23 @@ public class Node implements TimeSkewDetectorCallback {
 	
 	public boolean enableNewLoadManagement(boolean realTimeFlag) {
 		return nodeStats.enableNewLoadManagement(realTimeFlag);
+	}
+	
+	/** FIXME move to Probe.java? */
+	public boolean enableRoutedPing() {
+		return enableRoutedPing;
+	}
+
+
+	public boolean updateIsUrgent() {
+		OpennetManager om = getOpennet();
+		if(om != null) {
+			if(om.announcer != null && om.announcer.isWaitingForUpdater())
+				return true;
+		}
+		if(peers.getPeerNodeStatusSize(PeerManager.PEER_NODE_STATUS_TOO_NEW, true) > PeerManager.OUTDATED_MIN_TOO_NEW_DARKNET)
+			return true;
+		return false;
 	}
 
 }

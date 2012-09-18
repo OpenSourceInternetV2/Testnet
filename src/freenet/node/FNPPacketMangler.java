@@ -84,7 +84,6 @@ public class FNPPacketMangler implements OutgoingPacketMangler {
 
 	private final Node node;
 	private final NodeCrypto crypto;
-	private final MessageCore usm;
 	private final PacketSocketHandler sock;
 	private final EntropySource myPacketDataSource;
 	/**
@@ -173,7 +172,6 @@ public class FNPPacketMangler implements OutgoingPacketMangler {
 	public FNPPacketMangler(Node node, NodeCrypto crypt, PacketSocketHandler sock) {
 		this.node = node;
 		this.crypto = crypt;
-		this.usm = node.usm;
 		this.sock = sock;
 		myPacketDataSource = new EntropySource();
 		authenticatorCache = new HashMap<ByteArrayWrapper, byte[]>();
@@ -860,13 +858,13 @@ public class FNPPacketMangler implements OutgoingPacketMangler {
 
 		long t2=System.currentTimeMillis();
 		if((t2-t1)>500) {
-			Logger.error(this,"Message1 timeout error:Processing packet for"+pn);
+			Logger.error(this,"Message1 timeout error:Processing packet for "+pn);
 		}
 	}
 	
 	private final LRUHashtable<InetAddress, Long> throttleRekeysByIP = new LRUHashtable<InetAddress, Long>();
-	
-	private final int REKEY_BY_IP_TABLE_SIZE = 1024;
+
+	private static final int REKEY_BY_IP_TABLE_SIZE = 1024;
 
 	private boolean throttleRekey(PeerNode pn, Peer replyTo) {
 		if(pn != null) {
@@ -889,8 +887,8 @@ public class FNPPacketMangler implements OutgoingPacketMangler {
 		return false;
 	}
 
-	private final int MAX_NONCES_PER_PEER = 10;
-	
+	private static final int MAX_NONCES_PER_PEER = 10;
+
 	/*
 	 * format:
 	 * Ni,g^i
@@ -934,7 +932,7 @@ public class FNPPacketMangler implements OutgoingPacketMangler {
 		}
 		long t2=System.currentTimeMillis();
 		if((t2-now)>500) {
-			Logger.error(this,"Message1 timeout error:Sending packet for"+pn.getPeer());
+			Logger.error(this,"Message1 timeout error:Sending packet for "+pn.getPeer());
 		}
 	}
 
@@ -1112,7 +1110,7 @@ public class FNPPacketMangler implements OutgoingPacketMangler {
 
 		long t2=System.currentTimeMillis();
 		if((t2-t1)>500) {
-			Logger.error(this,"Message2 timeout error:Processing packet for"+pn.getPeer());
+			Logger.error(this,"Message2 timeout error:Processing packet for "+pn.getPeer());
 		}
 	}
 
@@ -1413,7 +1411,7 @@ public class FNPPacketMangler implements OutgoingPacketMangler {
 
 		final long t2=System.currentTimeMillis();
 		if((t2-t1)>500) {
-			Logger.error(this,"Message3 Processing packet for"+pn.getPeer()+" took "+TimeUtil.formatTime(t2-t1, 3, true));
+			Logger.error(this,"Message3 Processing packet for "+pn.getPeer()+" took "+TimeUtil.formatTime(t2-t1, 3, true));
 		}
 	}
 
@@ -1859,7 +1857,7 @@ public class FNPPacketMangler implements OutgoingPacketMangler {
 		}, 5*1000);
 		long t2=System.currentTimeMillis();
 		if((t2-t1)>500)
-			Logger.error(this,"Message3 timeout error:Sending packet for"+pn.getPeer());
+			Logger.error(this,"Message3 timeout error:Sending packet for "+pn.getPeer());
 	}
 
 	private int getInitialMessageID(byte[] identity) {
@@ -1980,7 +1978,7 @@ public class FNPPacketMangler implements OutgoingPacketMangler {
 		}
 		long t2=System.currentTimeMillis();
 		if((t2-t1)>500)
-			Logger.error(this,"Message4 timeout error:Sending packet for"+pn.getPeer());
+			Logger.error(this,"Message4 timeout error:Sending packet for "+pn.getPeer());
 	}
 
 	/**
@@ -2759,7 +2757,7 @@ public class FNPPacketMangler implements OutgoingPacketMangler {
 		}
 		} catch (StillNotAckedException e) {
 			Logger.error(this, "Forcing disconnect on "+tracker.pn+" for "+tracker+" because packets not acked after 10 minutes!");
-			tracker.pn.forceDisconnect(true);
+			tracker.pn.forceDisconnect();
 			disconnectedStillNotAcked(tracker);
 			throw new NotConnectedException();
 		}
@@ -3251,7 +3249,7 @@ public class FNPPacketMangler implements OutgoingPacketMangler {
 		return ctx;
 	}
 
-	private final void _fillJFKDHFIFOOffThread() {
+	private void _fillJFKDHFIFOOffThread() {
 		// do it off-thread
 		node.executor.execute(new PrioRunnable() {
 			@Override

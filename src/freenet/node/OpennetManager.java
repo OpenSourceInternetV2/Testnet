@@ -468,8 +468,7 @@ public class OpennetManager {
 					else
 						peersLRU.push(nodeToAddNow);
 					oldPeers.remove(nodeToAddNow);
-					if(nodeToAddNow != null)
-						connectionAttemptsAddedPlentySpace.put(connectionType, connectionAttemptsAddedPlentySpace.get(connectionType)+1);
+					connectionAttemptsAddedPlentySpace.put(connectionType, connectionAttemptsAddedPlentySpace.get(connectionType)+1);
 				} else {
 					if(logMINOR) Logger.minor(this, "Want peer because not enough opennet nodes");
 				}
@@ -555,8 +554,7 @@ public class OpennetManager {
 						if(logMINOR) Logger.minor(this, "Dropped opennet peer: "+dropList.get(0));
 						timeLastDropped.put(connectionType, now);
 					}
-					if(nodeToAddNow != null)
-						connectionAttemptsAdded.put(connectionType, connectionAttemptsAdded.get(connectionType)+1);
+					connectionAttemptsAdded.put(connectionType, connectionAttemptsAdded.get(connectionType)+1);
 				} else {
 					// Do not update timeLastDropped, anything dropped was over the limit so doesn't count (because nodeToAddNow == null).
 					if(!justChecking) {
@@ -1088,19 +1086,6 @@ public class OpennetManager {
 	}
 
 	static byte[] innerWaitForOpennetNoderef(long xferUID, int paddedLength, int realLength, PeerNode source, boolean isReply, long uid, boolean sendReject, ByteCounter ctr, Node node) {
-		if (paddedLength > OpennetManager.MAX_OPENNET_NODEREF_LENGTH) {
-			Logger.error(OpennetManager.class, "Noderef too big: "+SizeUtil.formatSize(paddedLength)
-					+" real length "+SizeUtil.formatSize(realLength));
-			if(sendReject) rejectRef(uid, source, DMT.NODEREF_REJECTED_TOO_BIG, ctr);
-			return null;
-		}
-		if (realLength > paddedLength) {
-			Logger.error(OpennetManager.class, "Real length larger than padded length: "
-					+ SizeUtil.formatSize(paddedLength)
-					+ " real length "+SizeUtil.formatSize(realLength));
-			if(sendReject) rejectRef(uid, source, DMT.NODEREF_REJECTED_REAL_BIGGER_THAN_PADDED, ctr);
-			return null;
-		}
 		byte[] buf = new byte[paddedLength];
 		ByteArrayRandomAccessThing raf = new ByteArrayRandomAccessThing(buf);
 		PartiallyReceivedBulk prb = new PartiallyReceivedBulk(node.usm, buf.length, Node.PACKET_SIZE, raf, false);

@@ -148,9 +148,7 @@ public class PacketSender implements Runnable {
 		PeerNode[] nodes;
 
         pm = node.peers;
-        synchronized(pm) {
-        	nodes = pm.myPeers;
-        }
+        nodes = pm.myPeers();
 
 		long nextActionTime = Long.MAX_VALUE;
 		long oldTempNow = now;
@@ -364,7 +362,7 @@ public class PacketSender implements Runnable {
 				}
 			} catch (BlockedTooLongException e) {
 				Logger.error(this, "Waited too long: "+TimeUtil.formatTime(e.delta)+" to allocate a packet number to send to "+toSendPacket+" on "+e.tracker+" : "+(toSendPacket.isOldFNP() ? "(old packet format)" : "(new packet format)")+" (version "+toSendPacket.getVersionNumber()+") - DISCONNECTING!");
-				toSendPacket.forceDisconnect(true);
+				toSendPacket.forceDisconnect();
 				onForceDisconnectBlockTooLong(toSendPacket, e);
 			}
 
@@ -395,7 +393,7 @@ public class PacketSender implements Runnable {
 				}
 			} catch (BlockedTooLongException e) {
 				Logger.error(this, "Waited too long: "+TimeUtil.formatTime(e.delta)+" to allocate a packet number to send to "+toSendAckOnly+" on "+e.tracker+" : "+(toSendAckOnly.isOldFNP() ? "(old packet format)" : "(new packet format)")+" (version "+toSendAckOnly.getVersionNumber()+") - DISCONNECTING!");
-				toSendAckOnly.forceDisconnect(true);
+				toSendAckOnly.forceDisconnect();
 				onForceDisconnectBlockTooLong(toSendAckOnly, e);
 			}
 
