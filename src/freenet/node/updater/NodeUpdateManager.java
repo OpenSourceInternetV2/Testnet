@@ -64,7 +64,7 @@ public class NodeUpdateManager {
 	 * freenet-ext.jar and doesn't require any other jars. Older nodes can
 	 * update to this point via old UOM.
 	 */
-	public final static int TRANSITION_VERSION = 1421;
+	public final static int TRANSITION_VERSION = 103;
 	/** The freenet-ext.jar build number corresponding to the old key */
 	public final static int TRANSITION_VERSION_EXT = 29;
 
