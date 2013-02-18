@@ -123,8 +123,7 @@ public class FirstTimeWizardToadlet extends Toadlet {
 
 		//Skip the browser warning page if using Chrome in incognito mode
 		if (currentStep == WIZARD_STEP.BROWSER_WARNING &&
-		        request.getHeader("user-agent").contains("Chrome") && request.isParameterSet("incognito") &&
-		        Boolean.valueOf(request.getParam("incognito"))) {
+				request.isChrome() && request.isIncognito()) {
 			super.writeTemporaryRedirect(ctx, "Skipping unneeded warning",
 			        persistFields.appendTo(TOADLET_URL+"?step=MISC"));
 			return;
@@ -304,12 +303,16 @@ public class FirstTimeWizardToadlet extends Toadlet {
 				case SECURITY_PHYSICAL:
 					//Go back to the beginning from the warning or the physical security page.
 					return WIZARD_STEP.WELCOME;
+				default:
+					//do nothing
 			}
 		} else  if (preset == WIZARD_PRESET.LOW) {
 			switch (currentStep) {
 				case DATASTORE_SIZE:
 					//Go back to the beginning from the datastore page.
 					return WIZARD_STEP.WELCOME;
+				default:
+					//do nothing
 			}
 		}
 
@@ -333,6 +336,8 @@ public class FirstTimeWizardToadlet extends Toadlet {
 			case BANDWIDTH_MONTHLY:
 			case BANDWIDTH_RATE:
 				return WIZARD_STEP.BANDWIDTH;
+			default:
+				//do nothing
 		}
 
 		//Should be matched by this point, unknown step.

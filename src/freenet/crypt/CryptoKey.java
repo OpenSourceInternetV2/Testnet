@@ -6,17 +6,25 @@ package freenet.crypt;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.Serializable;
 import java.lang.reflect.Method;
 import java.math.BigInteger;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 
 import freenet.support.HexUtil;
 import freenet.support.Logger;
 
-@SuppressWarnings("serial")
-public abstract class CryptoKey implements CryptoElement, Serializable {
+public abstract class CryptoKey implements CryptoElement {
 
-	protected static final Digest shactx = SHA1.getInstance();
+	protected static final MessageDigest shactx;
+	static {
+		try {
+			shactx = MessageDigest.getInstance("SHA1", Util.mdProviders.get("SHA1"));
+		} catch(NoSuchAlgorithmException e) {
+			// impossible
+			throw new Error(e);
+		}
+	}
 
 	CryptoKey() {
 	}
@@ -48,8 +56,8 @@ public abstract class CryptoKey implements CryptoElement, Serializable {
 
 	protected byte[] fingerprint(BigInteger[] quantities) {
 		synchronized (shactx) {
-			for (int i = 0; i < quantities.length; i++) {
-				byte[] mpi = Util.MPIbytes(quantities[i]);
+			for (BigInteger quantity: quantities) {
+				byte[] mpi = Util.MPIbytes(quantity);
 				shactx.update(mpi, 0, mpi.length);
 			}
 			return shactx.digest();

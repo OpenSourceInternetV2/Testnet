@@ -29,9 +29,7 @@ import freenet.client.events.SendingToNetworkEvent;
 import freenet.client.events.SplitfileCompatibilityModeEvent;
 import freenet.client.events.SplitfileProgressEvent;
 import freenet.client.filter.ContentFilter;
-import freenet.client.filter.KnownUnsafeContentTypeException;
 import freenet.client.filter.MIMEType;
-import freenet.client.filter.UnknownContentTypeException;
 import freenet.client.filter.UnsafeContentTypeException;
 import freenet.crypt.HashResult;
 import freenet.keys.ClientKeyBlock;
@@ -92,6 +90,9 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 	private SnoopBucket snoopBucket;
 	private HashResult[] hashes;
 	private final Bucket initialMetadata;
+	/** If set, and filtering is enabled, the MIME type we filter with must 
+	 * be compatible with this extension. */
+	final String forceCompatibleExtension;
 
 	// Shorter constructors for convenience and backwards compatibility.
 
@@ -115,6 +116,11 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 		this(client, uri, ctx, priorityClass, clientContext, returnBucket, binaryBlobWriter, false, initialMetadata);
 	}
 
+	public ClientGetter(ClientGetCallback client,
+			FreenetURI uri, FetchContext ctx, short priorityClass, RequestClient clientContext, Bucket returnBucket, BinaryBlobWriter binaryBlobWriter, boolean dontFinalizeBlobWriter, Bucket initialMetadata) {
+		this(client, uri, ctx, priorityClass, clientContext, returnBucket, binaryBlobWriter, dontFinalizeBlobWriter, initialMetadata, null);
+	}
+	
 	/**
 	 * Fetch a key.
 	 * @param client The callback we will call when it is completed.
@@ -131,7 +137,7 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 	 * @param dontFinalizeBlobWriter If true, the caller is responsible for BlobWriter finalization
 	 */
 	public ClientGetter(ClientGetCallback client,
-			FreenetURI uri, FetchContext ctx, short priorityClass, RequestClient clientContext, Bucket returnBucket, BinaryBlobWriter binaryBlobWriter, boolean dontFinalizeBlobWriter, Bucket initialMetadata) {
+			FreenetURI uri, FetchContext ctx, short priorityClass, RequestClient clientContext, Bucket returnBucket, BinaryBlobWriter binaryBlobWriter, boolean dontFinalizeBlobWriter, Bucket initialMetadata, String forceCompatibleExtension) {
 		super(priorityClass, clientContext);
 		this.clientCallback = client;
 		this.returnBucket = returnBucket;
@@ -143,6 +149,7 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 		this.dontFinalizeBlobWriter = dontFinalizeBlobWriter;
 		this.initialMetadata = initialMetadata;
 		archiveRestarts = 0;
+		this.forceCompatibleExtension = forceCompatibleExtension;
 	}
 
 	public void start(ObjectContainer container, ClientContext context) throws FetchException {
@@ -163,7 +170,6 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 			container.activate(uri, 5);
 			container.activate(ctx, 1);
 		}
-		boolean filtering = ctx.filterData;
 		if(logMINOR)
 			Logger.minor(this, "Starting "+this+" persistent="+persistent()+" for "+uri);
 		try {
@@ -171,6 +177,7 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 			// But we DEFINITELY do not want to synchronize while calling currentState.schedule(),
 			// which can call onSuccess and thereby almost anything.
 			HashResult[] oldHashes = null;
+			String overrideMIME = ctx.overrideMIME;
 			synchronized(this) {
 				if(restart)
 					clearCountersOnRestart();
@@ -182,6 +189,8 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 					finished = false;
 				}
 				expectedMIME = null;
+				if(overrideMIME != null)
+					expectedMIME = overrideMIME;
 				expectedSize = 0;
 				oldHashes = hashes;
 				hashes = null;
@@ -259,11 +268,24 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 			onFailure(new FetchException(FetchException.BUCKET_ERROR, "Failed to close binary blob stream, already closed: "+e, e), null, container, context);
 			return;
 		}
-		String mimeType;
+		String mimeType = clientMetadata == null ? null : clientMetadata.getMIMEType();
+		
+		if(persistent())
+			container.activate(ctx, 1);
+		
+		if(forceCompatibleExtension != null && ctx.filterData) {
+			try {
+				checkCompatibleExtension(mimeType);
+			} catch (FetchException e) {
+				onFailure(e, null, container, context);
+			}
+		}
+
 		synchronized(this) {
 			finished = true;
 			currentState = null;
-			mimeType = expectedMIME = clientMetadata.getMIMEType();
+			expectedMIME = mimeType;
+				
 		}
 		if(persistent()) {
 			container.store(this);
@@ -289,12 +311,12 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 
 		if(persistent()) {
 			container.activate(returnBucket, 5);
-			container.activate(ctx, 1);
 			container.activate(state, 1);
 			container.activate(clientCallback, 1);
 			if(hashes != null) container.activate(hashes, Integer.MAX_VALUE);
 		}
 
+		FetchException ex = null; // set on failure
 		try {
 			if(returnBucket == null) finalResult = context.getBucketFactory(persistent()).makeBucket(maxLen);
 			else finalResult = returnBucket;
@@ -337,99 +359,49 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 				clientMetadata = worker.getClientMetadata();
 				result = new FetchResult(clientMetadata, finalResult);
 			}
-			dataOutput.close();
-			dataInput.close();
-			output.close();
 		} catch (OutOfMemoryError e) {
 			OOMHandler.handleOOM(e);
 			System.err.println("Failing above attempted fetch...");
-			onFailure(new FetchException(FetchException.INTERNAL_ERROR, e), state, container, context, true);
-			if(finalResult != null && finalResult != returnBucket) {
-				finalResult.free();
-				if(persistent()) finalResult.removeFrom(container);
-			} else if(returnBucket != null && persistent())
-				returnBucket.storeTo(container); // Need to store the counter on FileBucket's so it can overwrite next time.
-			Bucket data = result.asBucket();
-			data.free();
-			if(persistent()) data.removeFrom(container);
-			return;
+			ex = new FetchException(FetchException.INTERNAL_ERROR, e);
 		} catch(UnsafeContentTypeException e) {
 			Logger.normal(this, "Error filtering content: will not validate", e);
-			onFailure(new FetchException(e.getFetchErrorCode(), expectedSize, e, ctx.overrideMIME != null ? ctx.overrideMIME : expectedMIME), state/*Not really the state's fault*/, container, context, true);
-			if(finalResult != null && finalResult != returnBucket) {
-				finalResult.free();
-				if(persistent()) finalResult.removeFrom(container);
-			} else if(returnBucket != null && persistent())
-				returnBucket.storeTo(container); // Need to store the counter on FileBucket's so it can overwrite next time.
-			Bucket data = result.asBucket();
-			data.free();
-			if(persistent()) data.removeFrom(container);
-			return;
+			ex = new FetchException(e.getFetchErrorCode(), expectedSize, e, ctx.overrideMIME != null ? ctx.overrideMIME : expectedMIME);
+			/*Not really the state's fault*/
 		} catch(URISyntaxException e) {
 			//Impossible
 			Logger.error(this, "URISyntaxException converting a FreenetURI to a URI!: "+e, e);
-			onFailure(new FetchException(FetchException.INTERNAL_ERROR, e), state/*Not really the state's fault*/, container, context, true);
-			if(finalResult != null && finalResult != returnBucket) {
-				finalResult.free();
-				if(persistent()) finalResult.removeFrom(container);
-			} else if(returnBucket != null && persistent())
-				returnBucket.storeTo(container); // Need to store the counter on FileBucket's so it can overwrite next time.
-			Bucket data = result.asBucket();
-			data.free();
-			if(persistent()) data.removeFrom(container);
-			return;
+			ex = new FetchException(FetchException.INTERNAL_ERROR, e);
+			/*Not really the state's fault*/
 		} catch(CompressionOutputSizeException e) {
 			Logger.error(this, "Caught "+e, e);
-			onFailure(new FetchException(FetchException.TOO_BIG, e), state, container, context, true);
-			if(finalResult != null && finalResult != returnBucket) {
-				finalResult.free();
-				if(persistent()) finalResult.removeFrom(container);
-			} else if(returnBucket != null && persistent())
-				returnBucket.storeTo(container); // Need to store the counter on FileBucket's so it can overwrite next time.
-			Bucket data = result.asBucket();
-			data.free();
-			if(persistent()) data.removeFrom(container);
-			return;
+			ex = new FetchException(FetchException.TOO_BIG, e);
 		} catch(IOException e) {
 			Logger.error(this, "Caught "+e, e);
-			onFailure(new FetchException(FetchException.BUCKET_ERROR, e), state, container, context, true);
-			if(finalResult != null && finalResult != returnBucket) {
-				finalResult.free();
-				if(persistent()) finalResult.removeFrom(container);
-			} else if(returnBucket != null && persistent())
-				returnBucket.storeTo(container); // Need to store the counter on FileBucket's so it can overwrite next time.
-			Bucket data = result.asBucket();
-			data.free();
-			if(persistent()) data.removeFrom(container);
-			return;
+			ex = new FetchException(FetchException.BUCKET_ERROR, e);
 		} catch(FetchException e) {
 			Logger.error(this, "Caught "+e, e);
-			onFailure(e, state, container, context, true);
-			if(finalResult != null && finalResult != returnBucket) {
-				finalResult.free();
-				if(persistent()) finalResult.removeFrom(container);
-			} else if(returnBucket != null && persistent())
-				returnBucket.storeTo(container); // Need to store the counter on FileBucket's so it can overwrite next time.
-			Bucket data = result.asBucket();
-			data.free();
-			if(persistent()) data.removeFrom(container);
-			return;
+			ex = e;
 		} catch(Throwable t) {
 			Logger.error(this, "Caught "+t, t);
-			onFailure(new FetchException(FetchException.INTERNAL_ERROR, t), state, container, context, true);
-			if(finalResult != null && finalResult != returnBucket) {
-				finalResult.free();
-				if(persistent()) finalResult.removeFrom(container);
-			} else if(returnBucket != null && persistent())
-				returnBucket.storeTo(container); // Need to store the counter on FileBucket's so it can overwrite next time.
-			Bucket data = result.asBucket();
-			data.free();
-			if(persistent()) data.removeFrom(container);
-			return;
+			ex = new FetchException(FetchException.INTERNAL_ERROR, t);
 		} finally {
 			Closer.close(dataInput);
 			Closer.close(dataOutput);
 			Closer.close(output);
+		}
+		if(ex != null) {
+			onFailure(ex, state, container, context, true);
+			if(finalResult != null && finalResult != returnBucket) {
+				finalResult.free();
+				if(persistent()) finalResult.removeFrom(container);
+			} else if(returnBucket != null && persistent())
+				returnBucket.storeTo(container); // Need to store the counter on FileBucket's so it can overwrite next time.
+			if(result != null) {
+			Bucket data = result.asBucket();
+			data.free();
+			if(persistent()) data.removeFrom(container);
+			}
+			return;
 		}
 		if(persistent()) {
 			state.removeFrom(container, context);
@@ -743,24 +715,42 @@ public class ClientGetter extends BaseClientGetter implements WantsCooldownCallb
 	/** Called when we know the MIME type of the final data 
 	 * @throws FetchException */
 	@Override
-	public void onExpectedMIME(String mime, ObjectContainer container, ClientContext context) throws FetchException {
+	public void onExpectedMIME(ClientMetadata clientMetadata, ObjectContainer container, ClientContext context) throws FetchException {
 		if(finalizedMetadata) return;
 		if(persistent()) {
 			container.activate(ctx, 1);
 		}
-		expectedMIME = ctx.overrideMIME == null ? mime : ctx.overrideMIME;
-		if(ctx.filterData && !(expectedMIME == null || expectedMIME.equals("") || expectedMIME.equals(DefaultMIMETypes.DEFAULT_MIME_TYPE))) {
-			UnsafeContentTypeException e = ContentFilter.checkMIMEType(expectedMIME);
+		String mime = null;
+		if(!clientMetadata.isTrivial())
+			mime = clientMetadata.getMIMEType();
+		if(ctx.overrideMIME != null)
+			mime = ctx.overrideMIME;
+		if(mime == null || mime.equals("")) return;
+		if(ctx.filterData) {
+			UnsafeContentTypeException e = ContentFilter.checkMIMEType(mime);
 			if(e != null) {
-				throw new FetchException(e.getFetchErrorCode(), expectedSize, e, expectedMIME);
+				throw new FetchException(e.getFetchErrorCode(), expectedSize, e, mime);
 			}
+			if(forceCompatibleExtension != null)
+				checkCompatibleExtension(mime);
+		}
+		synchronized(this) {
+			expectedMIME = mime;
 		}
 		if(persistent()) {
 			container.store(this);
 			container.activate(ctx.eventProducer, 1);
 		}
 		ctx.eventProducer.produceEvent(new ExpectedMIMEEvent(mime), container, context);
+	}
 
+	private void checkCompatibleExtension(String mimeType) throws FetchException {
+		MIMEType type = ContentFilter.getMIMEType(mimeType);
+		if(type == null)
+			// Not our problem, will be picked up elsewhere.
+			return;
+		if(!DefaultMIMETypes.isValidExt(mimeType, forceCompatibleExtension))
+			throw new FetchException(FetchException.MIME_INCOMPATIBLE_WITH_EXTENSION);
 	}
 
 	/** Called when we have some idea of the length of the final data */

@@ -11,7 +11,6 @@ import freenet.client.FailureCodeTracker;
 import freenet.client.InsertException;
 import freenet.keys.FreenetURI;
 import freenet.node.Node;
-import freenet.support.Fields;
 import freenet.support.SimpleFieldSet;
 
 public class PutFailedMessage extends FCPMessage {
@@ -70,7 +69,7 @@ public class PutFailedMessage extends FCPMessage {
 		
 		if(useVerboseFields) {
 			codeDescription = fs.get("CodeDescription");
-			isFatal = Fields.stringToBool(fs.get("Fatal"), false);
+			isFatal = fs.getBoolean("Fatal", false);
 			shortCodeDescription = fs.get("ShortCodeDescription");
 		} else {
 			codeDescription = InsertException.getMessage(code);

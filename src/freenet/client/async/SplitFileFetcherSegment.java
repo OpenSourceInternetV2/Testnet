@@ -292,9 +292,12 @@ public class SplitFileFetcherSegment implements FECCallback, HasCooldownTrackerI
 				if(copy < (CHKBlock.DATA_LENGTH))
 					buf = new byte[(int)copy];
 				InputStream is = data.getInputStream();
+				try {
 				DataInputStream dis = new DataInputStream(is);
 				dis.readFully(buf);
+				} finally {
 				is.close();
+				}
 				os.write(buf);
 				totalCopied += buf.length;
 				if(!blockActive) container.deactivate(status, 1);
@@ -488,7 +491,7 @@ public class SplitFileFetcherSegment implements FECCallback, HasCooldownTrackerI
 
 	private synchronized void migrateToKeys(ObjectContainer container) {
 		if(logMINOR) Logger.minor(this, "Migrating keys on "+this);
-		keys = new SplitFileSegmentKeys(dataKeys.length, checkBuckets.length, forceCryptoKey, cryptoAlgorithm);
+		keys = new SplitFileSegmentKeys(dataKeys.length, checkBuckets.length, forceCryptoKey, getCryptoAlgorithm());
 		foundKeys = new boolean[dataKeys.length + checkBuckets.length];
 		for(int i=0;i<dataKeys.length;i++) {
 			ClientCHK key = dataKeys[i];
@@ -1236,7 +1239,7 @@ public class SplitFileFetcherSegment implements FECCallback, HasCooldownTrackerI
 					}
 					if(block == null) {
 						block = 
-							ClientCHKBlock.encodeSplitfileBlock(buf, forceCryptoKey, cryptoAlgorithm);
+							ClientCHKBlock.encodeSplitfileBlock(buf, forceCryptoKey, getCryptoAlgorithm());
 					}
 					ClientCHK key = getBlockKey(blockNo, container);
 					if(key != null) {
@@ -1277,6 +1280,14 @@ public class SplitFileFetcherSegment implements FECCallback, HasCooldownTrackerI
 		return true; // Assume it is encoded correctly.
 	}
 
+	private byte getCryptoAlgorithm() {
+		if(cryptoAlgorithm == 0) {
+			// Very old splitfile? FIXME remove this?
+			return Key.ALGO_AES_PCFB_256_SHA256;
+		} else
+			return cryptoAlgorithm;
+	}
+
 	/**
 	 * Queue the data for a healing insert. If the data is persistent, we copy it; the caller must free the 
 	 * original data when it is finished with it, the healing queue will free the copied data. If the data is 
@@ -1300,7 +1311,7 @@ public class SplitFileFetcherSegment implements FECCallback, HasCooldownTrackerI
 			data = wrapper.getReaderBucket();
 		}
 		if(logMINOR) Logger.minor(this, "Queueing healing insert for "+data+" on "+this);
-		context.healingQueue.queue(copy, forceCryptoKey, cryptoAlgorithm, context);
+		context.healingQueue.queue(copy, forceCryptoKey, getCryptoAlgorithm(), context);
 		return data;
 	}
 	
@@ -1764,7 +1775,7 @@ public class SplitFileFetcherSegment implements FECCallback, HasCooldownTrackerI
 	}
 
 	public synchronized Integer[] getKeyNumbersAtRetryLevel(int retryCount, ObjectContainer container, ClientContext context) {
-		Vector<Integer> v = new Vector<Integer>();
+		ArrayList<Integer> v = new ArrayList<Integer>();
 		if(keys == null) 
 			migrateToKeys(container);
 		else {
@@ -2247,14 +2258,14 @@ public class SplitFileFetcherSegment implements FECCallback, HasCooldownTrackerI
 		}
 	}
 	
-	public boolean checkRecentlyFailed(int blockNum, ObjectContainer container, ClientContext context, KeysFetchingLocally keys, long now) {
-		if(keys == null) 
+	public boolean checkRecentlyFailed(int blockNum, ObjectContainer container, ClientContext context, KeysFetchingLocally fetching, long now) {
+		if(this.keys == null)
 			migrateToKeys(container);
 		else {
 			if(persistent) container.activate(keys, 1);
 		}
 		Key key = this.keys.getNodeKey(blockNum, null, true);
-		long timeout = keys.checkRecentlyFailed(key, realTimeFlag);
+		long timeout = fetching.checkRecentlyFailed(key, realTimeFlag);
 		if(timeout <= now) return false;
 		int maxRetries = getMaxRetries(container);
 		if(maxRetries == -1 || (maxRetries >= RequestScheduler.COOLDOWN_RETRIES)) {

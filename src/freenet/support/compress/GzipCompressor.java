@@ -13,6 +13,7 @@ import java.util.zip.GZIPOutputStream;
 import freenet.support.Logger;
 import freenet.support.api.Bucket;
 import freenet.support.api.BucketFactory;
+import freenet.support.io.Closer;
 import freenet.support.io.CountedOutputStream;
 
 // WARNING: THIS CLASS IS STORED IN DB4O -- THINK TWICE BEFORE ADD/REMOVE/RENAME FIELDS
@@ -27,9 +28,12 @@ public class GzipCompressor implements Compressor {
 			is = data.getInputStream();
 			os = output.getOutputStream();
 			compress(is, os, maxReadLength, maxWriteLength);
+			// It is essential that the close()'s throw if there is any problem.
+			is.close(); is = null;
+			os.close(); os = null;
 		} finally {
-			if(is != null) is.close();
-			if(os != null) os.close();
+			Closer.close(is);
+			Closer.close(os);
 		}
 		return output;
 	}

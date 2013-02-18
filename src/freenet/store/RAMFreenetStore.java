@@ -4,13 +4,13 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Enumeration;
 
-import com.sleepycat.je.DatabaseException;
-
 import freenet.keys.KeyVerifyException;
 import freenet.node.stats.StoreAccessStats;
+import freenet.node.useralerts.UserAlertManager;
 import freenet.support.ByteArrayWrapper;
-import freenet.support.LRUHashtable;
+import freenet.support.LRUMap;
 import freenet.support.Logger;
+import freenet.support.Ticker;
 
 /**
  * LRU in memory store.
@@ -26,7 +26,7 @@ public class RAMFreenetStore<T extends StorableBlock> implements FreenetStore<T>
 		boolean oldBlock;
 	}
 	
-	private final LRUHashtable<ByteArrayWrapper, Block> blocksByRoutingKey;
+	private final LRUMap<ByteArrayWrapper, Block> blocksByRoutingKey;
 	
 	private final StoreCallback<T> callback;
 	
@@ -38,7 +38,7 @@ public class RAMFreenetStore<T extends StorableBlock> implements FreenetStore<T>
 	
 	public RAMFreenetStore(StoreCallback<T> callback, int maxKeys) {
 		this.callback = callback;
-		this.blocksByRoutingKey = new LRUHashtable<ByteArrayWrapper, Block>();
+		this.blocksByRoutingKey = LRUMap.createSafeMap(ByteArrayWrapper.FAST_COMPARATOR);
 		this.maxKeys = maxKeys;
 		callback.setStore(this);
 	}
@@ -141,7 +141,7 @@ public class RAMFreenetStore<T extends StorableBlock> implements FreenetStore<T>
 
 	@Override
 	public synchronized void setMaxKeys(long maxStoreKeys, boolean shrinkNow)
-			throws DatabaseException, IOException {
+			throws IOException {
 		this.maxKeys = (int)Math.min(Integer.MAX_VALUE, maxStoreKeys);
 		// Always shrink now regardless of parameter as we will shrink on the next put() anyway.
 		while(blocksByRoutingKey.size() > maxKeys) {
@@ -223,4 +223,18 @@ public class RAMFreenetStore<T extends StorableBlock> implements FreenetStore<T>
 		return null;
 	}
 
+	@Override
+	public boolean start(Ticker ticker, boolean longStart) throws IOException {
+		return false;
+	}
+
+	@Override
+	public void setUserAlertManager(UserAlertManager userAlertManager) {
+		// Do nothing
+	}
+	
+	@Override
+	public FreenetStore<T> getUnderlyingStore() {
+		return this;
+	}
 }

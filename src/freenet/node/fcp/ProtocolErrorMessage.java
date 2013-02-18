@@ -6,7 +6,6 @@ package freenet.node.fcp;
 import com.db4o.ObjectContainer;
 
 import freenet.node.Node;
-import freenet.support.Fields;
 import freenet.support.Logger;
 import freenet.support.SimpleFieldSet;
 
@@ -57,6 +56,8 @@ public class ProtocolErrorMessage extends FCPMessage {
 	static final int DARKNET_ONLY = 31;
 	static final int NO_SUCH_PLUGIN = 32;
 	static final int PERSISTENCE_DISABLED = 33;
+	static final int TOO_MANY_FILES_IN_INSERT = 34;
+	static final int BAD_MIME_TYPE = 35;
 	
 	final int code;
 	final String extra;
@@ -65,6 +66,7 @@ public class ProtocolErrorMessage extends FCPMessage {
 	final boolean global;
 	
 	private String codeDescription() {
+		// FIXME l10n?
 		switch(code) {
 		case CLIENT_HELLO_MUST_BE_FIRST_MESSAGE:
 			return "ClientHello must be first message";
@@ -130,6 +132,10 @@ public class ProtocolErrorMessage extends FCPMessage {
 			return "Operation only available on a darknet peer";
 		case NO_SUCH_PLUGIN:
 			return "No such plugin";
+		case TOO_MANY_FILES_IN_INSERT:
+			return "Too many files in a single folder on a freesite insert";
+		case BAD_MIME_TYPE:
+			return "Bad MIME type";
 		default:
 			Logger.error(this, "Unknown error code: "+code, new Exception("debug"));
 		return "(Unknown)";
@@ -148,8 +154,8 @@ public class ProtocolErrorMessage extends FCPMessage {
 		ident = fs.get("Identifier");
 		code = Integer.parseInt(fs.get("Code"));
 		extra = fs.get("ExtraDescription");
-		fatal = Fields.stringToBool(fs.get("Fatal"), false);
-		global = Fields.stringToBool(fs.get("Global"), false);
+		fatal = fs.getBoolean("Fatal", false);
+		global = fs.getBoolean("Global", false);
 	}
 
 	@Override

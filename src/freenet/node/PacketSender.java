@@ -5,7 +5,6 @@ package freenet.node;
 
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.Vector;
 
 import freenet.clients.http.ExternalLinkToadlet;
 import freenet.io.comm.Peer;
@@ -67,16 +66,12 @@ public class PacketSender implements Runnable {
 	NodeStats stats;
 	long lastReportedNoPackets;
 	long lastReceivedPacketFromAnyNode;
-	private Vector<ResendPacketItem> rpiTemp;
-	private int[] rpiIntTemp;
 	private MersenneTwister localRandom;
 
 	PacketSender(Node node) {
 		this.node = node;
 		myThread = new NativeThread(this, "PacketSender thread for " + node.getDarknetPortNumber(), NativeThread.MAX_PRIORITY, false);
 		myThread.setDaemon(true);
-		rpiTemp = new Vector<ResendPacketItem>();
-		rpiIntTemp = new int[64];
 		localRandom = node.createRandom();
 	}
 
@@ -126,7 +121,6 @@ public class PacketSender implements Runnable {
 		 * Index of the point in the nodes list at which we sent a packet and then
 		 * ran out of bandwidth. We start the loop from here next time.
 		 */
-		int brokeAt = 0;
 		while(true) {
 			lastReceivedPacketFromAnyNode = lastReportedNoPackets;
 			try {
@@ -161,7 +155,7 @@ public class PacketSender implements Runnable {
 			canSendThrottled = true;
 		else {
 			long canSendAt = node.outputThrottle.getNanosPerTick() * (MAX_PACKET_SIZE - count);
-			canSendAt = (canSendAt / (1000*1000)) + (canSendAt % (1000*1000) == 0 ? 0 : 1);
+			canSendAt = (canSendAt + 1000*1000 - 1) / (1000*1000);
 			if(logMINOR)
 				Logger.minor(this, "Can send throttled packets in "+canSendAt+"ms");
 			nextActionTime = Math.min(nextActionTime, now + canSendAt);
@@ -187,13 +181,11 @@ public class PacketSender implements Runnable {
 		/** The peer(s) which lowestHandshakeTime is referring to */
 		ArrayList<PeerNode> handshakePeers = null;
 
-		for(int i = 0; i < nodes.length; i++) {
+		for(PeerNode pn: nodes) {
 			now = System.currentTimeMillis();
-			int idx = i;
 			
 			// Basic peer maintenance.
 			
-			PeerNode pn = nodes[idx];
 			// For purposes of detecting not having received anything, which indicates a 
 			// serious connectivity problem, we want to look for *any* packets received, 
 			// including auth packets.
@@ -218,7 +210,7 @@ public class PacketSender implements Runnable {
 					// Hopefully this is a transient network glitch, but stuff will have already started to timeout, so lets dump the pending messages.
 					pn.disconnected(true, false);
 					continue;
-				} else if(now - pn.lastReceivedAckTime() > pn.maxTimeBetweenReceivedAcks()) {
+				} else if(now - pn.lastReceivedAckTime() > pn.maxTimeBetweenReceivedAcks() && !pn.isDisconnecting()) {
 					// FIXME better to disconnect immediately??? Or check canSend()???
 					Logger.normal(this, "Disconnecting from " + pn + " - haven't received acks recently");
 					// Do it properly.
@@ -347,21 +339,21 @@ public class PacketSender implements Runnable {
 		
 		if(toSendPacket != null) {
 			try {
-				if(toSendPacket.maybeSendPacket(now, rpiTemp, rpiIntTemp, false)) {
+				if(toSendPacket.maybeSendPacket(now, false)) {
 					count = node.outputThrottle.getCount();
 					if(count > MAX_PACKET_SIZE)
 						canSendThrottled = true;
 					else {
 						canSendThrottled = false;
 						long canSendAt = node.outputThrottle.getNanosPerTick() * (MAX_PACKET_SIZE - count);
-						canSendAt = (canSendAt / (1000*1000)) + (canSendAt % (1000*1000) == 0 ? 0 : 1);
+						canSendAt = (canSendAt + 1000*1000 - 1) / (1000*1000);
 						if(logMINOR)
 							Logger.minor(this, "Can send throttled packets in "+canSendAt+"ms");
 						nextActionTime = Math.min(nextActionTime, now + canSendAt);
 					}
 				}
 			} catch (BlockedTooLongException e) {
-				Logger.error(this, "Waited too long: "+TimeUtil.formatTime(e.delta)+" to allocate a packet number to send to "+toSendPacket+" on "+e.tracker+" : "+(toSendPacket.isOldFNP() ? "(old packet format)" : "(new packet format)")+" (version "+toSendPacket.getVersionNumber()+") - DISCONNECTING!");
+				Logger.error(this, "Waited too long: "+TimeUtil.formatTime(e.delta)+" to allocate a packet number to send to "+toSendPacket+" : "+("(new packet format)")+" (version "+toSendPacket.getVersionNumber()+") - DISCONNECTING!");
 				toSendPacket.forceDisconnect();
 				onForceDisconnectBlockTooLong(toSendPacket, e);
 			}
@@ -378,21 +370,21 @@ public class PacketSender implements Runnable {
 
 		} else if(toSendAckOnly != null) {
 			try {
-				if(toSendAckOnly.maybeSendPacket(now, rpiTemp, rpiIntTemp, true)) {
+				if(toSendAckOnly.maybeSendPacket(now, true)) {
 					count = node.outputThrottle.getCount();
 					if(count > MAX_PACKET_SIZE)
 						canSendThrottled = true;
 					else {
 						canSendThrottled = false;
 						long canSendAt = node.outputThrottle.getNanosPerTick() * (MAX_PACKET_SIZE - count);
-						canSendAt = (canSendAt / (1000*1000)) + (canSendAt % (1000*1000) == 0 ? 0 : 1);
+						canSendAt = (canSendAt + 1000*1000 - 1) / (1000*1000);
 						if(logMINOR)
 							Logger.minor(this, "Can send throttled packets in "+canSendAt+"ms");
 						nextActionTime = Math.min(nextActionTime, now + canSendAt);
 					}
 				}
 			} catch (BlockedTooLongException e) {
-				Logger.error(this, "Waited too long: "+TimeUtil.formatTime(e.delta)+" to allocate a packet number to send to "+toSendAckOnly+" on "+e.tracker+" : "+(toSendAckOnly.isOldFNP() ? "(old packet format)" : "(new packet format)")+" (version "+toSendAckOnly.getVersionNumber()+") - DISCONNECTING!");
+				Logger.error(this, "Waited too long: "+TimeUtil.formatTime(e.delta)+" to allocate a packet number to send to "+toSendAckOnly+" : "+("(new packet format)")+" (version "+toSendAckOnly.getVersionNumber()+") - DISCONNECTING!");
 				toSendAckOnly.forceDisconnect();
 				onForceDisconnectBlockTooLong(toSendAckOnly, e);
 			}
@@ -437,12 +429,13 @@ public class PacketSender implements Runnable {
 			PeerNode[] peers = om.getOldPeers();
 
 			for(PeerNode pn : peers) {
-				if(pn.timeLastConnected() <= 0)
+				long lastConnected = pn.timeLastConnected(now);
+				if(lastConnected <= 0)
 					Logger.error(this, "Last connected is zero or negative for old-opennet-peer "+pn);
 				// Will be removed by next line.
-				if(now - pn.timeLastConnected() > OpennetManager.MAX_TIME_ON_OLD_OPENNET_PEERS) {
+				if(now - lastConnected > OpennetManager.MAX_TIME_ON_OLD_OPENNET_PEERS) {
 					om.purgeOldOpennetPeer(pn);
-					if(logMINOR) Logger.minor(this, "Removing old opennet peer (too old): "+pn+" age is "+TimeUtil.formatTime(now - pn.timeLastConnected()));
+					if(logMINOR) Logger.minor(this, "Removing old opennet peer (too old): "+pn+" age is "+TimeUtil.formatTime(now - lastConnected));
 					continue;
 				}
 				if(pn.isConnected()) continue; // Race condition??

@@ -9,7 +9,6 @@ import freenet.client.async.ClientContext;
 import freenet.client.async.DBJob;
 import freenet.client.async.DatabaseDisabledException;
 import freenet.node.Node;
-import freenet.support.Fields;
 import freenet.support.Logger;
 import freenet.support.SimpleFieldSet;
 import freenet.support.io.NativeThread;
@@ -26,7 +25,7 @@ public class RemovePersistentRequest extends FCPMessage {
 	final boolean global;
 	
 	public RemovePersistentRequest(SimpleFieldSet fs) throws MessageInvalidException {
-		this.global = Fields.stringToBool(fs.get("Global"), false);
+		this.global = fs.getBoolean("Global", false);
 		this.identifier = fs.get("Identifier");
 		if(identifier == null)
 			throw new MessageInvalidException(ProtocolErrorMessage.MISSING_FIELD, "Must have Identifier", null, global);

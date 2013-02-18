@@ -5,9 +5,9 @@ package freenet.client.async;
 
 import java.net.MalformedURLException;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Arrays;
 import java.util.Map;
-import java.util.Vector;
+import java.util.TreeMap;
 import java.util.WeakHashMap;
 
 import com.db4o.ObjectContainer;
@@ -24,7 +24,7 @@ import freenet.node.NodeClientCore;
 import freenet.node.RequestClient;
 import freenet.node.RequestStarter;
 import freenet.support.Executor;
-import freenet.support.LRUHashtable;
+import freenet.support.LRUMap;
 import freenet.support.LogThresholdCallback;
 import freenet.support.Logger;
 import freenet.support.Logger.LogLevel;
@@ -93,27 +93,30 @@ public class USKManager {
 	}
 	
 	/** Latest version successfully fetched by blanked-edition-number USK */
-	final HashMap<USK, Long> latestKnownGoodByClearUSK;
+	final Map<USK, Long> latestKnownGoodByClearUSK;
 	
 	/** Latest SSK slot known to be by the author by blanked-edition-number USK */
-	final HashMap<USK, Long> latestSlotByClearUSK;
+	final Map<USK, Long> latestSlotByClearUSK;
 	
 	/** Subscribers by clear USK */
-	final HashMap<USK, USKCallback[]> subscribersByClearUSK;
+	final Map<USK, USKCallback[]> subscribersByClearUSK;
 	
 	/** Backgrounded USKFetchers by USK. These have pollForever=true and are only
 	 * created when subscribe(,true) is called. */
-	final HashMap<USK, USKFetcher> backgroundFetchersByClearUSK;
+	final Map<USK, USKFetcher> backgroundFetchersByClearUSK;
 	
 	/** Temporary fetchers, started when a USK (with a positive edition number) is 
 	 * fetched. These have pollForever=false. Keyed by the clear USK, i.e. one per 
 	 * USK, not one per {USK, start edition}, unlike fetchersByUSK. */
-	final LRUHashtable<USK, USKFetcher> temporaryBackgroundFetchersLRU;
+	final LRUMap<USK, USKFetcher> temporaryBackgroundFetchersLRU;
 	
 	/** Temporary fetchers where we have been asked to prefetch content. We track
 	 * the time we last had a new last-slot, so that if there is no new last-slot
 	 * found in 60 seconds, we start prefetching. We delete the entry when the 
-	 * fetcher finishes. */
+	 * fetcher finishes.
+	 * FIXME this should be TreeMap-based to prevent hash collision DoS'es.
+	 * But we also need it to be weak ... how to implement?
+	 */
 	final WeakHashMap<USK, Long> temporaryBackgroundFetchersPrefetch;
 	
 	final FetchContext backgroundFetchContext;
@@ -126,7 +129,7 @@ public class USKManager {
 	private ClientContext context;
 	
 	public USKManager(NodeClientCore core) {
-		HighLevelSimpleClient client = core.makeClient(RequestStarter.UPDATE_PRIORITY_CLASS);
+		HighLevelSimpleClient client = core.makeClient(RequestStarter.UPDATE_PRIORITY_CLASS, false, false);
 		client.setMaxIntermediateLength(FProxyToadlet.MAX_LENGTH_NO_PROGRESS);
 		client.setMaxLength(FProxyToadlet.MAX_LENGTH_NO_PROGRESS);
 		backgroundFetchContext = client.getFetchContext();
@@ -134,11 +137,13 @@ public class USKManager {
 		backgroundFetchContextIgnoreDBR = backgroundFetchContext.clone();
 		backgroundFetchContextIgnoreDBR.ignoreUSKDatehints = true;
 		realFetchContext = client.getFetchContext();
-		latestKnownGoodByClearUSK = new HashMap<USK, Long>();
-		latestSlotByClearUSK = new HashMap<USK, Long>();
-		subscribersByClearUSK = new HashMap<USK, USKCallback[]>();
-		backgroundFetchersByClearUSK = new HashMap<USK, USKFetcher>();
-		temporaryBackgroundFetchersLRU = new LRUHashtable<USK, USKFetcher>();
+		// Performance: I'm pretty sure there is no spatial locality in the underlying data, so it's okay to use the FAST_COMPARATOR here.
+		// That is, even if two USKs are by the same author, they won't necessarily be updated or polled at the same time.
+		latestKnownGoodByClearUSK = new TreeMap<USK, Long>(USK.FAST_COMPARATOR);
+		latestSlotByClearUSK = new TreeMap<USK, Long>(USK.FAST_COMPARATOR);
+		subscribersByClearUSK = new TreeMap<USK, USKCallback[]>(USK.FAST_COMPARATOR);
+		backgroundFetchersByClearUSK = new TreeMap<USK, USKFetcher>(USK.FAST_COMPARATOR);
+		temporaryBackgroundFetchersLRU = LRUMap.createSafeMap(USK.FAST_COMPARATOR);
 		temporaryBackgroundFetchersPrefetch = new WeakHashMap<USK, Long>();
 		executor = core.getExecutor();
 	}
@@ -311,12 +316,11 @@ public class USKManager {
 	public void startTemporaryBackgroundFetcher(USK usk, ClientContext context, final FetchContext fctx, boolean prefetchContent, boolean realTimeFlag) {
 		final USK clear = usk.clearCopy();
 		USKFetcher sched = null;
-		Vector<USKFetcher> toCancel = null;
+		ArrayList<USKFetcher> toCancel = null;
 		synchronized(this) {
-//			java.util.Iterator i = backgroundFetchersByClearUSK.keySet().iterator();
 //			int x = 0;
-//			while(i.hasNext()) {
-//				System.err.println("Fetcher "+x+": "+i.next());
+//			for(USK key: backgroundFetchersByClearUSK.keySet()) {
+//				System.err.println("Fetcher "+x+": "+key);
 //				x++;
 //			}
 			USKFetcher f = temporaryBackgroundFetchersLRU.get(clear);
@@ -343,7 +347,7 @@ public class USKManager {
 				USKFetcher fetcher = temporaryBackgroundFetchersLRU.popValue();
 				temporaryBackgroundFetchersPrefetch.remove(fetcher.getOriginalUSK().clearCopy());
 				if(!fetcher.hasSubscribers()) {
-					if(toCancel == null) toCancel = new Vector<USKFetcher>(2);
+					if(toCancel == null) toCancel = new ArrayList<USKFetcher>(2);
 					toCancel.add(fetcher);
 				} else {
 					if(logMINOR)
@@ -351,13 +355,27 @@ public class USKManager {
 				}
 			}
 		}
-		if(toCancel != null) {
-			for(int i=0;i<toCancel.size();i++) {
-				USKFetcher fetcher = toCancel.get(i);
-				fetcher.cancel(null, context);
-			}
+		final ArrayList<USKFetcher> cancelled = toCancel;
+		final USKFetcher scheduleMe = sched;
+		// This is just a prefetching method. so it should not unnecessarily delay the parent, nor should it take important locks.
+		// So we should do the actual schedule/cancels off-thread.
+		// However, the above is done on-thread because a lot of the time it will already be running.
+		if(cancelled != null || sched != null) {
+			executor.execute(new Runnable() {
+				
+				@Override
+				public void run() {
+					if(cancelled != null) {
+						for(int i=0;i<cancelled.size();i++) {
+							USKFetcher fetcher = cancelled.get(i);
+							fetcher.cancel(null, USKManager.this.context);
+						}
+					}
+					if(scheduleMe != null) scheduleMe.schedule(null, USKManager.this.context);
+				}
+				
+			});
 		}
-		if(sched != null) sched.schedule(null, context);
 	}
 	
 	static final int PREFETCH_DELAY = 60*1000;
@@ -551,8 +569,8 @@ public class USKManager {
 				callbacks = new USKCallback[] { cb };
 			} else {
 				boolean mustAdd = true;
-				for(int i=0;i<callbacks.length;i++) {
-					if(callbacks[i] == cb) {
+				for(USKCallback callback: callbacks) {
+					if(callback == cb) {
 						// Already subscribed.
 						// But it may still be waiting for the callback.
 						if(!(curEd > ed || goodEd > ed)) return;
@@ -560,10 +578,8 @@ public class USKManager {
 					}
 				}
 				if(mustAdd) {
-					USKCallback[] newCallbacks = new USKCallback[callbacks.length+1];
-					System.arraycopy(callbacks, 0, newCallbacks, 0, callbacks.length);
-					newCallbacks[callbacks.length] = cb;
-					callbacks = newCallbacks;
+					callbacks = Arrays.copyOf(callbacks, callbacks.length+1);
+					callbacks[callbacks.length-1] = cb;
 				}
 			}
 			subscribersByClearUSK.put(clear, callbacks);
@@ -607,14 +623,12 @@ public class USKManager {
 				return;
 			}
 			int j=0;
-			for(int i=0;i<callbacks.length;i++) {
-				USKCallback c = callbacks[i];
+			for(USKCallback c: callbacks) {
 				if((c != null) && (c != cb)) {
 					callbacks[j++] = c;
 				}
 			}
-			USKCallback[] newCallbacks = new USKCallback[j];
-			System.arraycopy(callbacks, 0, newCallbacks, 0, j);
+			USKCallback[] newCallbacks = Arrays.copyOf(callbacks, j);
 			if(newCallbacks.length > 0)
 				subscribersByClearUSK.put(clear, newCallbacks);
 			else{

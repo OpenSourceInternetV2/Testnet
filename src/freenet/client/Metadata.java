@@ -14,11 +14,8 @@ import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
 import java.security.MessageDigest;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Map;
-import java.util.Set;
-import java.util.Map.Entry;
 
 import com.db4o.ObjectContainer;
 
@@ -27,6 +24,7 @@ import freenet.client.async.SplitFileSegmentKeys;
 import freenet.keys.BaseClientKey;
 import freenet.keys.ClientCHK;
 import freenet.keys.FreenetURI;
+import freenet.keys.Key;
 import freenet.client.ArchiveManager.ARCHIVE_TYPE;
 import freenet.client.InsertContext.CompatibilityMode;
 import freenet.crypt.HashResult;
@@ -355,6 +353,9 @@ public class Metadata implements Cloneable {
 					else
 						splitfileSingleCryptoKey = getCryptoKey(hashes);
 				}
+			} else {
+				// Pre-1010 isn't supported, so there is only one possibility.
+				splitfileSingleCryptoAlgorithm = Key.ALGO_AES_PCFB_256_SHA256;
 			}
 			
 			if(logMINOR) Logger.minor(this, "Splitfile");
@@ -401,6 +402,8 @@ public class Metadata implements Cloneable {
 				// Use UTF-8 for everything, for simplicity
 				mimeType = new String(toRead, "UTF-8");
 				if(logMINOR) Logger.minor(this, "Raw MIME");
+				if(!DefaultMIMETypes.isPlausibleMIMEType(mimeType))
+					throw new MetadataParseException("Does not look like a MIME type: \""+mimeType+"\"");
 			}
 			if(logMINOR) Logger.minor(this, "MIME = "+mimeType);
 		}
@@ -425,6 +428,20 @@ public class Metadata implements Cloneable {
 
 		if((!splitfile) && ((documentType == SIMPLE_REDIRECT) || (documentType == ARCHIVE_MANIFEST))) {
 			simpleRedirectKey = readKey(dis);
+			if(simpleRedirectKey.isCHK()) {
+				byte algo = ClientCHK.getCryptoAlgorithmFromExtra(simpleRedirectKey.getExtra());
+				if(algo == Key.ALGO_AES_CTR_256_SHA256) {
+					minCompatMode = CompatibilityMode.COMPAT_1416;
+					maxCompatMode = CompatibilityMode.latest();
+				} else {
+					// Older.
+					if (getParsedVersion() == 0) {
+						minCompatMode = CompatibilityMode.COMPAT_1250_EXACT;
+						maxCompatMode = CompatibilityMode.COMPAT_1251;
+					} else
+						minCompatMode = maxCompatMode = CompatibilityMode.COMPAT_1255;
+				}
+			}
 		} else if(splitfile) {
 			splitfileAlgorithm = dis.readShort();
 			if(!((splitfileAlgorithm == SPLITFILE_NONREDUNDANT) ||
@@ -486,8 +503,8 @@ public class Metadata implements Cloneable {
 						// No extra check blocks, so before 1251.
 						if(blocksPerSegment == 128) {
 							// Is the last segment small enough that we can't have used even splitting?
-							int segs = (int)Math.ceil(((double)countDataBlocks) / 128);
-							int segSize = (int)Math.ceil(((double)countDataBlocks) / ((double)segs));
+							int segs = (countDataBlocks + 127) / 128;
+							int segSize = (countDataBlocks + segs - 1) / segs;
 							if(segSize == 128) {
 								// Could be either
 								minCompatMode = CompatibilityMode.COMPAT_1250_EXACT;
@@ -508,7 +525,13 @@ public class Metadata implements Cloneable {
 						}
 					}
 				} else {
-					minCompatMode = maxCompatMode = CompatibilityMode.COMPAT_1255;
+					// Version 1 i.e. modern.
+					if(splitfileSingleCryptoAlgorithm == Key.ALGO_AES_PCFB_256_SHA256)
+						minCompatMode = maxCompatMode = CompatibilityMode.COMPAT_1255;
+					else if(splitfileSingleCryptoAlgorithm == Key.ALGO_AES_CTR_256_SHA256) {
+						minCompatMode = CompatibilityMode.COMPAT_1416;
+						maxCompatMode = CompatibilityMode.latest();
+					}
 					if(params.length < 10)
 						throw new MetadataParseException("Splitfile parameters too short for version 1");
 					short paramsType = Fields.bytesToShort(params, 0);
@@ -546,8 +569,7 @@ public class Metadata implements Cloneable {
 				}
 				checkBlocksPerSegment = checkBlocks;
 
-				segmentCount = (splitfileBlocks / (blocksPerSegment + crossCheckBlocks)) +
-					(splitfileBlocks % (blocksPerSegment + crossCheckBlocks) == 0 ? 0 : 1);
+				segmentCount = (splitfileBlocks + blocksPerSegment + crossCheckBlocks - 1) / (blocksPerSegment + crossCheckBlocks);
 					
 				// Onion, 128/192.
 				// Will be segmented.
@@ -737,11 +759,8 @@ public class Metadata implements Cloneable {
 		//mimeType = null;
 		//clientMetadata = new ClientMetadata(null);
 		manifestEntries = new HashMap<String, Metadata>();
-		int count = 0;
-		for (Iterator<Entry<String, Object>> i = dir.entrySet().iterator(); i.hasNext();) {
-			Map.Entry<String, Object> entry = i.next();
+		for (Map.Entry<String, Object> entry: dir.entrySet()) {
 			String key = entry.getKey().intern();
-			count++;
 			Object o = entry.getValue();
 			Metadata target;
 			if(o instanceof String) {
@@ -788,15 +807,13 @@ public class Metadata implements Cloneable {
 		//mimeType = null;
 		//clientMetadata = new ClientMetadata(null);
 		manifestEntries = new HashMap<String, Metadata>();
-		int count = 0;
-		for(Iterator<String> i = dir.keySet().iterator();i.hasNext();) {
-			String key = i.next().intern();
+		for (Map.Entry<String, Object> entry: dir.entrySet()) {
+			String key = entry.getKey().intern();
 			if(key.indexOf('/') != -1)
 				throw new IllegalArgumentException("Slashes in simple redirect manifest filenames! (slashes denote sub-manifests): "+key);
-			count++;
-			Object o = dir.get(key);
+			Object o = entry.getValue();
 			if(o instanceof Metadata) {
-				Metadata data = (Metadata) dir.get(key);
+				Metadata data = (Metadata) o;
 				if(data == null)
 					throw new NullPointerException();
 				if(logDEBUG)
@@ -833,11 +850,9 @@ public class Metadata implements Cloneable {
 		mimeType = null;
 		clientMetadata = new ClientMetadata();
 		manifestEntries = new HashMap<String, Metadata>();
-		int count = 0;
-		for(Iterator<String> i = dir.keySet().iterator();i.hasNext();) {
-			String key = i.next().intern();
-			count++;
-			Object o = dir.get(key);
+		for (Map.Entry<String, Object> entry: dir.entrySet()) {
+			String key = entry.getKey().intern();
+			Object o = entry.getValue();
 			Metadata target;
 			if(o instanceof String) {
 				// Archive internal redirect
@@ -1097,8 +1112,8 @@ public class Metadata implements Cloneable {
 	}
 
 	private boolean keysValid(ClientCHK[] keys) {
-		for(int i=0;i<keys.length;i++)
-			if(keys[i].getNodeCHK().getRoutingKey() == null) return false;
+		for(ClientCHK key: keys)
+			if(key.getNodeCHK().getRoutingKey() == null) return false;
 		return true;
 	}
 
@@ -1130,13 +1145,6 @@ public class Metadata implements Cloneable {
 			throw new Error("Could not write to byte array: "+e, e);
 		}
 		return baos.toByteArray();
-	}
-
-	private ClientCHK readCHK(DataInputStream dis) throws IOException, MetadataParseException {
-		if(fullKeys) {
-			throw new MetadataParseException("fullKeys not supported on a splitfile");
-		}
-		return ClientCHK.readRawBinaryKey(dis);
 	}
 
 	/**
@@ -1226,12 +1234,10 @@ public class Metadata implements Cloneable {
      */
     public HashMap<String, Metadata> getDocuments() {
     	HashMap<String, Metadata> docs = new HashMap<String, Metadata>();
-        Set<String> s = manifestEntries.keySet();
-        Iterator<String> i = s.iterator();
-        while (i.hasNext()) {
-        	String st = i.next();
+		for (Map.Entry<String, Metadata> entry: manifestEntries.entrySet()) {
+        	String st = entry.getKey();
         	if (st.length()>0)
-        		docs.put(st, manifestEntries.get(st));
+        		docs.put(st, entry.getValue());
         }
         return docs;
     }
@@ -1477,13 +1483,13 @@ public class Metadata implements Cloneable {
 			dos.writeInt(manifestEntries.size());
 			boolean kill = false;
 			LinkedList<Metadata> unresolvedMetadata = null;
-			for(Iterator<String> i=manifestEntries.keySet().iterator();i.hasNext();) {
-				String name = i.next();
+			for(Map.Entry<String, Metadata> entry: manifestEntries.entrySet()) {
+				String name = entry.getKey();
 				byte[] nameData = name.getBytes("UTF-8");
 				if(nameData.length > Short.MAX_VALUE) throw new IllegalArgumentException("Manifest name too long");
 				dos.writeShort(nameData.length);
 				dos.write(nameData);
-				Metadata meta = manifestEntries.get(name);
+				Metadata meta = entry.getValue();
 				try {
 					byte[] data = meta.writeToByteArray();
 					if(data.length > MAX_SIZE_IN_MANIFEST) {
@@ -1505,11 +1511,11 @@ public class Metadata implements Cloneable {
 					dos.writeShort(data.length);
 					dos.write(data);
 				} catch (MetadataUnresolvedException e) {
-					Metadata[] m = e.mustResolve;
+					Metadata[] metas = e.mustResolve;
 					if(unresolvedMetadata == null)
 						unresolvedMetadata = new LinkedList<Metadata>();
-					for(int j=0;j<m.length;j++)
-						unresolvedMetadata.addFirst(m[j]);
+					for(Metadata m: metas)
+						unresolvedMetadata.addFirst(m);
 					kill = true;
 				}
 			}
@@ -1842,6 +1848,25 @@ public class Metadata implements Cloneable {
 
 	public int getDeductBlocksFromSegments() {
 		return deductBlocksFromSegments;
+	}
+
+	/** Return a best-guess compatibility mode, guaranteed not to be 
+	 * COMPAT_UNKNOWN or COMPAT_CURRENT. */
+	public CompatibilityMode guessCompatibilityMode() {
+		CompatibilityMode mode = getTopCompatibilityMode();
+		if(mode != CompatibilityMode.COMPAT_UNKNOWN) return mode;
+		CompatibilityMode min = minCompatMode;
+		CompatibilityMode max = maxCompatMode;
+		if(max == CompatibilityMode.COMPAT_CURRENT)
+			max = CompatibilityMode.latest();
+		if(min == max) return min;
+		if(min == CompatibilityMode.COMPAT_UNKNOWN &&
+				max != CompatibilityMode.COMPAT_UNKNOWN)
+			return max;
+		if(max == CompatibilityMode.COMPAT_UNKNOWN &&
+				min != CompatibilityMode.COMPAT_UNKNOWN)
+			return min;
+		return max;
 	}
 
 }

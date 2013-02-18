@@ -502,8 +502,8 @@ public class HTTPRequestImpl implements HTTPRequest {
 				return;
 
 			String boundary = null;
-			for(int i = 0; i < ctypeparts.length; i++) {
-				String[] subparts = ctypeparts[i].split("=");
+			for(String ctypepart: ctypeparts) {
+				String[] subparts = ctypepart.split("=");
 				if((subparts.length == 2) && subparts[0].trim().equalsIgnoreCase("boundary"))
 					boundary = subparts[1];
 			}
@@ -613,8 +613,8 @@ public class HTTPRequestImpl implements HTTPRequest {
 						bbos.write(b);
 				}
 
-				bbos.flush();
 				bbos.close();
+				bbos = null; bucketos = null;
 			
 				parts.put(name, filedata);
 				if(logMINOR)
@@ -889,6 +889,22 @@ public class HTTPRequestImpl implements HTTPRequest {
 	public String[] getParts() {
 		if(freedParts) throw new IllegalStateException("Already freed");
 		return parts.keySet().toArray(new String[parts.size()]);
+	}
+
+	@Override
+	public boolean isIncognito() {
+		if(isParameterSet("incognito"))
+			return Boolean.valueOf(getParam("incognito"));
+		return false;
+	}
+
+	@Override
+	public boolean isChrome() {
+		String ua = getHeader("user-agent");
+		if(ua != null) {
+			if(ua.contains("Chrome")) return true;
+		}
+		return false;
 	}
 
 }

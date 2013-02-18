@@ -11,11 +11,10 @@ import freenet.client.FailureCodeTracker;
 import freenet.client.FetchException;
 import freenet.keys.FreenetURI;
 import freenet.node.Node;
-import freenet.support.Fields;
 import freenet.support.LogThresholdCallback;
 import freenet.support.Logger;
-import freenet.support.SimpleFieldSet;
 import freenet.support.Logger.LogLevel;
+import freenet.support.SimpleFieldSet;
 
 public class GetFailedMessage extends FCPMessage {
 
@@ -73,7 +72,7 @@ public class GetFailedMessage extends FCPMessage {
 		
 		if(useVerboseFields) {
 			codeDescription = fs.get("CodeDescription");
-			isFatal = Fields.stringToBool(fs.get("Fatal"), false);
+			isFatal = fs.getBoolean("Fatal", false);
 			shortCodeDescription = fs.get("ShortCodeDescription");
 		} else {
 			codeDescription = FetchException.getMessage(code);
@@ -89,7 +88,7 @@ public class GetFailedMessage extends FCPMessage {
 			tracker = null;
 		}
 		expectedMimeType = fs.get("ExpectedMimeType");
-		finalizedExpected = Fields.stringToBool(fs.get("FinalizedExpected"), false);
+		finalizedExpected = fs.getBoolean("FinalizedExpected", false);
 		String s = fs.get("ExpectedDataLength");
 		if(s != null) {
 			expectedDataLength = Long.parseLong(s);
@@ -100,7 +99,7 @@ public class GetFailedMessage extends FCPMessage {
 			this.redirectURI = new FreenetURI(s);
 		else
 			this.redirectURI = null;
-		this.global = Fields.stringToBool(fs.get("Global"), false);
+		this.global = fs.getBoolean("Global", false);
 	}
 
 	@Override

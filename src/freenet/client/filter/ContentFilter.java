@@ -137,14 +137,15 @@ public class ContentFilter {
 		synchronized(mimeTypesByName) {
 			mimeTypesByName.put(mimeType.primaryMimeType, mimeType);
 			String[] alt = mimeType.alternateMimeTypes;
-			if((alt != null) && (alt.length > 0)) {
-				for(int i=0;i<alt.length;i++)
-					mimeTypesByName.put(alt[i], mimeType);
+			if(alt != null) {
+				for(String a: alt)
+					mimeTypesByName.put(a, mimeType);
 			}
 		}
 	}
 
 	public static String stripMIMEType(String mimeType) {
+		if(mimeType == null) return null;
 		int x; 
 		if((x=mimeType.indexOf(';')) != -1) {
 			mimeType = mimeType.substring(0, x).trim();
@@ -153,6 +154,7 @@ public class ContentFilter {
 	}
 	
 	public static MIMEType getMIMEType(String mimeType) {
+		if(mimeType == null) return null;
 		return mimeTypesByName.get(stripMIMEType(mimeType));
 	}
 
@@ -240,8 +242,7 @@ public class ContentFilter {
 			// Parse options
 			// Format: <type>/<subtype>[ optional white space ];[ optional white space ]<param>=<value>; <param2>=<value2>; ...
 			String[] rawOpts = options.split(";");
-			for(int i=0;i<rawOpts.length;i++) {
-				String raw = rawOpts[i];
+			for(String raw: rawOpts) {
 				idx = raw.indexOf('=');
 				if(idx == -1) {
 					Logger.error(ContentFilter.class, "idx = -1 for '=' on option: "+raw+" from "+typeName);
@@ -290,6 +291,9 @@ public class ContentFilter {
 				}
 				catch(IOException e) {
 					throw e;
+				} finally {
+					if(filterCallback != null)
+						filterCallback.onFinished();
 				}
 				if(charset != null) type = type + "; charset="+charset;
 				output.flush();

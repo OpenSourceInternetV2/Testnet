@@ -15,6 +15,8 @@ import java.net.MalformedURLException;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -23,7 +25,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.Vector;
 import java.util.jar.Attributes;
 import java.util.jar.JarException;
 import java.util.jar.JarFile;
@@ -84,7 +85,7 @@ public class PluginManager {
 
 	/* All currently starting plugins. */
 	private final Set<PluginProgress> startingPlugins = new HashSet<PluginProgress>();
-	private final Vector<PluginInfoWrapper> pluginWrappers;
+	private final ArrayList<PluginInfoWrapper> pluginWrappers;
 	private final HashMap<String, PluginLoadFailedUserAlert> pluginsFailedLoad;
 	final Node node;
 	private final NodeClientCore core;
@@ -109,7 +110,7 @@ public class PluginManager {
 		// config
 
 		toadletList = new HashMap<String, FredPlugin>();
-		pluginWrappers = new Vector<PluginInfoWrapper>();
+		pluginWrappers = new ArrayList<PluginInfoWrapper>();
 		pluginsFailedLoad = new HashMap<String, PluginLoadFailedUserAlert>();
 		this.node = node;
 		this.core = node.clientCore;
@@ -120,7 +121,7 @@ public class PluginManager {
 		if(logDEBUG)
 			Logger.debug(this, "Initialize Plugin Manager config");
 
-		client = core.makeClient(PRIO, true);
+		client = core.makeClient(PRIO, true, false);
 
 		// callback executor
 		executor = new SerialExecutor(NativeThread.NORM_PRIORITY);
@@ -179,10 +180,8 @@ public class PluginManager {
 		toStart = pmconfig.getStringArr("loadplugin");
 
 		if(lastVersion < 1237 && contains(toStart, "XMLLibrarian") && !contains(toStart, "Library")) {
-			String[] newToStart = new String[toStart.length+1];
-			System.arraycopy(toStart, 0, newToStart, 0, toStart.length);
-			newToStart[toStart.length] = "Library";
-			toStart = newToStart;
+			toStart = Arrays.copyOf(toStart, toStart.length+1);
+			toStart[toStart.length-1] = "Library";
 			System.err.println("Loading Library plugin, replaces XMLLibrarian, when upgrading from pre-1237");
 		}
 
@@ -311,7 +310,7 @@ public class PluginManager {
 	}
 
 	private String[] getConfigLoadString() {
-		Vector<String> v = new Vector<String>();
+		ArrayList<String> v = new ArrayList<String>();
 
 		synchronized(pluginWrappers) {
 			if(!started) return toStart;
@@ -409,7 +408,6 @@ public class PluginManager {
 			Logger.normal(this, "Plugin loaded: " + filename);
 		} catch (PluginNotFoundException e) {
 			Logger.normal(this, "Loading plugin failed (" + filename + ')', e);
-			String message = e.getMessage();
 			boolean stillTrying = false;
 			if(pdl instanceof PluginDownLoaderOfficialFreenet) {
 				PluginDownLoaderOfficialFreenet downloader = (PluginDownLoaderOfficialFreenet) pdl;
@@ -784,16 +782,20 @@ public class PluginManager {
 			/* Windows, maybe? */
 			lastSlash = pluginSpecification.lastIndexOf('\\');
 		File pluginDirectory = node.getPluginDir();
-		if(lastSlash == -1)
-			/* it's an official plugin! */
-			pluginFilename = pluginSpecification + ".jar";
-		else
+		if(lastSlash == -1) {
+			/* it's an official plugin or filename without path */
+			if (pluginSpecification.toLowerCase().endsWith(".jar"))
+				pluginFilename = pluginSpecification;
+			else
+				pluginFilename = pluginSpecification + ".jar";
+		} else
 			pluginFilename = pluginSpecification.substring(lastSlash + 1);
 		if(logDEBUG)
-			Logger.minor(this, "Delete plugin - plugname: " + pluginSpecification + "filename: " + pluginFilename, new Exception("debug"));
+			Logger.minor(this, "Delete plugin - plugname: " + pluginSpecification + " filename: " + pluginFilename, new Exception("debug"));
 		File[] cachedFiles = getPreviousInstances(pluginDirectory, pluginFilename);
 		for (File cachedFile : cachedFiles) {
-			cachedFile.delete();
+			if (!cachedFile.delete())
+				if(logMINOR) Logger.minor(this, "Can't delete file " + cachedFile);
 		}
 	}
 
@@ -816,9 +818,9 @@ public class PluginManager {
 				if(targets == null)
 					return;
 
-				for(int i = 0; i < targets.length; i++) {
-					toadletList.remove(targets[i]);
-					Logger.normal(this, "Removed HTTP symlink: " + targets[i] +
+				for(String target: targets) {
+					toadletList.remove(target);
+					Logger.normal(this, "Removed HTTP symlink: " + target +
 						" => /plugins/" + pi.getPluginClassName() + '/');
 				}
 			} catch(Throwable ex) {
@@ -835,11 +837,11 @@ public class PluginManager {
 				if(targets == null)
 					return;
 
-				for(int i = 0; i < targets.length; i++) {
-					rm = targets[i];
-					toadletList.remove(targets[i]);
-					pi.removePluginToadletSymlink(targets[i]);
-					Logger.normal(this, "Removed HTTP symlink: " + targets[i] +
+				for(String target: targets) {
+					rm = target;
+					toadletList.remove(target);
+					pi.removePluginToadletSymlink(target);
+					Logger.normal(this, "Removed HTTP symlink: " + target +
 						" => /plugins/" + pi.getPluginClassName() + '/');
 				}
 			} catch(Throwable ex) {
@@ -1085,29 +1087,37 @@ public class PluginManager {
 			this.advanced = advanced;
 		}
 	}
+	
+	public static OfficialPluginDescription getOfficialPlugin(String name) {
+		return officialPlugins.get(name);
+	}
 
-	public static Map<String, OfficialPluginDescription> officialPlugins = new HashMap<String, OfficialPluginDescription>();
+	public static Collection<OfficialPluginDescription> getOfficialPlugins() {
+		return Collections.unmodifiableCollection(officialPlugins.values());
+	}
+	
+	private static Map<String, OfficialPluginDescription> officialPlugins = new HashMap<String, OfficialPluginDescription>();
 
 	static {
 		try {
-		addOfficialPlugin("Freemail", "communication", false, 14, true, new FreenetURI("CHK@SdFaDNxXJ1-SuZJcAxq1vxVo3DEV38oJlv~dG2CO4sQ,f0wSpgekodQaiOitR03fvwjfuKjHFcYQ-J7GWj-t1~U,AAIC--8/Freemail.jar"));
+		addOfficialPlugin("Freemail", "communication", false, 15, true, new FreenetURI("CHK@6dfMgGf7YEfJhF0W~K0HUv0fnbuRwYH6iMqrLIbTI7k,huYBf8oBevwW6lRQnz-0jDP1dl5ej7FKeyVZ3CnH0Ec,AAMC--8/Freemail.jar"));
 		addOfficialPlugin("HelloWorld", "example", false, new FreenetURI("CHK@ZdTXnWV-ikkt25-y8jmhlHjCY-nikDMQwcYlWHww5eg,Usq3uRHpHuIRmMRRlNQE7BNveO1NwNI7oNKdb7cowFM,AAIC--8/HelloWorld.jar"), false, false, true);
 		addOfficialPlugin("HelloFCP", "example", false, new FreenetURI("CHK@0gtXJpw1QUJCmFOhoPRNqhsNbMtVw1CGVe46FUv7-e0,X8QqhtPkHoaFCUd89bgNaKxX1AV0WNBVf3sRgSF51-g,AAIC--8/HelloFCP.jar"), false, false, true);
 		addOfficialPlugin("JSTUN", "connectivity", true, 2, false, new FreenetURI("CHK@STQEzqyYLPtd4mCMIXO2HV38J6jG492hyPcEjTdc1oI,ojl4TCcJpJbo1OcO8nwPjycNCt1mn6zJq3lxCNExIHI,AAIC--8/JSTUN.jar"));
-		addOfficialPlugin("KeyUtils", "technical", false, 5009, false, new FreenetURI("CHK@WI1aBemzqrlOP62cvbVO0A7Ckb0hKSQ0OB1dmEbF9BM,bcnZg1CdaFciYOfmf6CK0-sLJD-I~13CFx4qI831mqY,AAIC--8/KeyUtils.jar"), false, false, true);
+		addOfficialPlugin("KeyUtils", "technical", false, 5019, false, new FreenetURI("CHK@j4-VTe0i6cUjqZxXvjUArVLQe7pr7a0EHARups8Qckk,LvC7BFBtIom29Na2KM1PMbo-G10hyCgNGlzJfj8jovw,AAMC--8/KeyUtils.jar"), false, false, true);
 		addOfficialPlugin("MDNSDiscovery", "connectivity", false, 2, false, new FreenetURI("CHK@wPyhY61bsDM3OW6arFlxYX8~mBKjo~XtOTIAbT0dk88,Vr3MTAzkW5J28SJs2dTxkj6D4GVNm3u8GFsxJgzTL1M,AAIC--8/MDNSDiscovery.jar"));
 		addOfficialPlugin("SNMP", "connectivity", false, new FreenetURI("CHK@EykJIv83UE291zONVzfXqyJYX5t66uCQJHkzQrB61MI,-npuolPZj1fcAWane2~qzRNEjKDERx52aQ5bC6NBQgw,AAIC--8/SNMP.jar"), false, false, true);
 		addOfficialPlugin("TestGallery", "example", false, 1, false, new FreenetURI("CHK@LfJVh1EkCr4ry0yDW74vwxkX-3nkr~ztW2z0SUZHfC0,-mz7l39dC6n0RTUiSokjC~pUDO7PWZ89miYesKH0-WA,AAIC--8/TestGallery.jar"), false, true, false);
 		addOfficialPlugin("ThawIndexBrowser", "file-transfer", false, 5, true, new FreenetURI("CHK@G8Je6u7aY3PN7KsxNYlQJzkYJure-5YNiZ~kFhwjHgs,ci3UDwFeWDzZzBvNsga1aM2vjouOUMMyKO8HAeOgFgs,AAIC--8/ThawIndexBrowser.jar"));
 		addOfficialPlugin("UPnP", "connectivity", true, 10003, false, new FreenetURI("CHK@chunCVhavqu60gWdf1jlAzKyVhEx7Hy99BaDpoU~xlc,iI-VcHxkg66W8-61P-bHzJYTx9PYrI2GuGIjC4Lg8mI,AAIC--8/UPnP.jar"));
 		addOfficialPlugin("XMLLibrarian", "index", false, 26, true, new FreenetURI("CHK@TvjyCaG1dx0xIBSJkXSKA1ZT4I~NkRKeQqwC0a0bhFM,JiQe4CRjF1RwhQRFFQzP-ih9t2i0peV0tBCfJAeFCdk,AAIC--8/XMLLibrarian.jar"), true, false, false);
-		addOfficialPlugin("XMLSpider", "index", false, 47, true, new FreenetURI("CHK@IQU400XKMx~nMEfdXV2YokCzJxx6BeCBmIObzZuq1zo,cY6UJ~KWGESJvaFajXHfr9UZUKJzt7gkmqUKUIZF5SE,AAIC--8/XMLSpider.jar"), true, false, false);
+		addOfficialPlugin("XMLSpider", "index", false, 48, true, new FreenetURI("CHK@ne-aaLuzVZLcHj0YmrclaCXJqxsSb7q-J0eYEiL9V9o,v0EdgDGBhTE9k6GsB44UrQ4ADUq5LCUVknLaE4iSEBk,AAMC--8/XMLSpider.jar"), true, false, false);
 		addOfficialPlugin("Freereader", "index", false, 4, true, new FreenetURI("CHK@4PuSjXk4Z0Hdu04JLhdPHLyOVLljj8qVbjRn3rHVzvg,bDGYnuYj67Q4uzroPBEWAYWRk26bPzf-iQ4~Uo3S7mg,AAIC--8/Freereader.jar"));
-		addOfficialPlugin("Library", "index", false, 24, true, new FreenetURI("CHK@WtWIvOZXLVZkmDrY5929RxOZ-woRpRoMgE8rdZaQ0VU,rxH~D9VvOOuA7bCnVuzq~eux77i9RR3lsdwVHUgXoOY,AAIC--8/Library.jar"));
-		addOfficialPlugin("Spider", "index", false, 49, false, new FreenetURI("CHK@7a33HqOQZqqyxBwGhtx-JEPzEMTOaPql4sB-EIuMhjk,2ecFy5ttpAC2sDx5yvS19MDEdowMQpzagpdOg2I~Mh8,AAIC--8/Spider.jar"), false, false, true);
-		addOfficialPlugin("Freetalk", "communication", false, 11, true, new FreenetURI("CHK@XLkj7ou05wE08UMMkYwV0-OoVWeYi--LWurWi1sAazI,WS2jtWMcjx1g7VKO9sGCd4cbaXwLgP1MltBqPc5zVak,AAIC--8/Freetalk.jar"), false, false, false);
+		addOfficialPlugin("Library", "index", false, 26, true, new FreenetURI("CHK@q~V5riY6S4hNm11BSPWgU8C5DA7Bem91upsKkzsV0Ms,qx2WP1hrDiB3iPqquosKln9jm~RRL5lKEEhRsGLThVY,AAIC--8/Library.jar"));
+		addOfficialPlugin("Spider", "index", false, 50, false, new FreenetURI("CHK@K4Sawgmq9dqvySTrrvcCnXRLtKuSbHK9DxBNTqVZfKQ,s~6SIL9X9FsFA7yNmB4MF7DUEMMuz1VVht1CKvOPApE,AAMC--8/Spider.jar"), false, false, true);
+		addOfficialPlugin("Freetalk", "communication", false, 13, true, new FreenetURI("CHK@zZDy-KwoZHYy4ZRpK9ZNNQb1vyespIIi9b-RPIyRM0k,EDHJbQpLtGSW4WHA23UHt6MpcoAp--dR7zmX-SGzzis,AAMC--8/Freetalk.jar"), false, false, true);
 		addOfficialPlugin("WebOfTrust", "communication", false, 12, true, new FreenetURI("CHK@Z6jitqIR4tJc9gOXih5cbTJxwnThweDvE5e-pTzetGM,vJfK3hmt06b-dF0yIbovPZlCUqTdgZ5-xsRzcslq1KU,AAIC--8/WebOfTrust.jar"), false, false, false); // from 35617f66afba287d98320843a521a9b395a5fbb3 (WoT build fix for headless)
-		addOfficialPlugin("FlogHelper", "communication", false, 26, true, new FreenetURI("CHK@DBzb9y3RozpB3kKcOallQsye1v83HI1O9wtNJweEzj4,3AXYzfyZI87nKy8uNAflktuOoBQo8Du~gDrRdbOW1z8,AAIC--8/FlogHelper.jar"), false, false, false);
+		addOfficialPlugin("FlogHelper", "communication", false, 28, true, new FreenetURI("CHK@VnLCVZjapukeSY~H3FkNNlXnp2Yfg8GNwHyh~Xx2H~0,0EBr1kWcsPpnsgeqeet8JMeh-2g8Lni6LexEw9S9f6g,AAMC--8/FlogHelper.jar"), false, false, false);
 		} catch (MalformedURLException e) {
 			throw new Error("Malformed hardcoded URL: "+e, e);
 		}
@@ -1766,4 +1776,5 @@ public class PluginManager {
 		if(!reloading)
 			node.nodeUpdater.stopPluginUpdater(wrapper.getFilename());
 	}
+
 }

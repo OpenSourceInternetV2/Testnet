@@ -5,17 +5,16 @@ package freenet.node.fcp;
 
 import java.net.MalformedURLException;
 
-import freenet.client.async.ManifestPutter;
 import freenet.client.HighLevelSimpleClientImpl;
 import freenet.client.InsertContext;
+import freenet.client.async.ManifestPutter;
 import freenet.keys.FreenetURI;
 import freenet.node.Node;
 import freenet.node.RequestStarter;
 import freenet.support.HexUtil;
-import freenet.support.Fields;
 import freenet.support.SimpleFieldSet;
-import freenet.support.compress.InvalidCompressionCodecException;
 import freenet.support.compress.Compressor.COMPRESSOR_TYPE;
+import freenet.support.compress.InvalidCompressionCodecException;
 
 /**
  * Put a directory, rather than a file.
@@ -64,7 +63,7 @@ public abstract class ClientPutDirMessage extends BaseDataCarryingMessage {
 	
 	public ClientPutDirMessage(SimpleFieldSet fs) throws MessageInvalidException {
 		identifier = fs.get("Identifier");
-		global = Fields.stringToBool(fs.get("Global"), false);
+		global = fs.getBoolean("Global", false);
 		defaultName = fs.get("DefaultName");
 		String s = fs.get("CompatibilityMode");
 		InsertContext.CompatibilityMode cmode = null;
@@ -102,7 +101,7 @@ public abstract class ClientPutDirMessage extends BaseDataCarryingMessage {
 			String u = fs.get("URI");
 			if(u == null)
 				throw new MessageInvalidException(ProtocolErrorMessage.MISSING_FIELD, "No URI", identifier, global);
-			FreenetURI uu = new FreenetURI(fs.get("URI"));
+			FreenetURI uu = new FreenetURI(u);
 			// Client is allowed to put a slash at the end if it wants to, but this is discouraged.
 			String[] meta = uu.getAllMetaStrings();
 			if(meta != null && meta.length == 1 && meta[0].length() == 0)
@@ -132,21 +131,21 @@ public abstract class ClientPutDirMessage extends BaseDataCarryingMessage {
 				throw new MessageInvalidException(ProtocolErrorMessage.ERROR_PARSING_NUMBER, "Error parsing MaxSize field: "+e.getMessage(), identifier, global);
 			}
 		}
-		getCHKOnly = Fields.stringToBool(fs.get("GetCHKOnly"), false);
+		getCHKOnly = fs.getBoolean("GetCHKOnly", false);
 		String priorityString = fs.get("PriorityClass");
 		if(priorityString == null) {
 			// defaults to the one just below FProxy
 			priorityClass = RequestStarter.IMMEDIATE_SPLITFILE_PRIORITY_CLASS;
 		} else {
 			try {
-				priorityClass = Short.parseShort(priorityString, 10);
-				if((priorityClass < RequestStarter.MAXIMUM_PRIORITY_CLASS) || (priorityClass > RequestStarter.MINIMUM_PRIORITY_CLASS))
-					throw new MessageInvalidException(ProtocolErrorMessage.INVALID_FIELD, "Valid priorities are from "+RequestStarter.MAXIMUM_PRIORITY_CLASS+" to "+RequestStarter.MINIMUM_PRIORITY_CLASS, identifier, global);
+				priorityClass = Short.parseShort(priorityString);
+				if(!RequestStarter.isValidPriorityClass(priorityClass))
+					throw new MessageInvalidException(ProtocolErrorMessage.INVALID_FIELD, "Invalid priority class "+priorityClass+" - range is "+RequestStarter.MINIMUM_PRIORITY_CLASS+" to "+RequestStarter.MAXIMUM_PRIORITY_CLASS, identifier, global);
 			} catch (NumberFormatException e) {
 				throw new MessageInvalidException(ProtocolErrorMessage.ERROR_PARSING_NUMBER, "Error parsing PriorityClass field: "+e.getMessage(), identifier, global);
 			}
 		}
-		dontCompress = Fields.stringToBool(fs.get("DontCompress"), false);
+		dontCompress = fs.getBoolean("DontCompress", false);
 		String persistenceString = fs.get("Persistence");
 		if((persistenceString == null) || persistenceString.equalsIgnoreCase("connection")) {
 			// Default: persists until connection loss.
@@ -164,7 +163,7 @@ public abstract class ClientPutDirMessage extends BaseDataCarryingMessage {
 		canWriteClientCache = fs.getBoolean("WriteToClientCache", false);
 		clientToken = fs.get("ClientToken");
 		targetFilename = fs.get("TargetFilename");
-		earlyEncode = Fields.stringToBool(fs.get("EarlyEncode"), false);
+		earlyEncode = fs.getBoolean("EarlyEncode", false);
 		String codecs = fs.get("Codecs");
 		if (codecs != null) {
 			COMPRESSOR_TYPE[] ca;

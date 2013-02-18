@@ -107,7 +107,7 @@ public class RealNodeBusyNetworkTest extends RealNodeRoutingTest {
 
         HighLevelSimpleClient[] clients = new HighLevelSimpleClient[nodes.length];
         for(int i=0;i<clients.length;i++) {
-        	clients[i] = nodes[i].clientCore.makeClient(RequestStarter.IMMEDIATE_SPLITFILE_PRIORITY_CLASS);
+        	clients[i] = nodes[i].clientCore.makeClient(RequestStarter.IMMEDIATE_SPLITFILE_PRIORITY_CLASS, false, false);
         }
 
         // Insert 100 keys into random nodes
@@ -128,7 +128,7 @@ public class RealNodeBusyNetworkTest extends RealNodeRoutingTest {
             byte[] encHeaders = block.getHeaders();
             ClientCHKBlock newBlock = new ClientCHKBlock(encData, encHeaders, chk, true);
             keys[i] = chk;
-            Logger.minor(RealNodeRequestInsertTest.class, "Decoded: "+new String(newBlock.memoryDecode()));
+            Logger.minor(RealNodeRequestInsertTest.class, "Decoded: "+new String(newBlock.memoryDecode(), "UTF-8"));
             Logger.normal(RealNodeRequestInsertTest.class,"CHK: "+chk.getURI());
             Logger.minor(RealNodeRequestInsertTest.class,"Headers: "+HexUtil.bytesToHex(block.getHeaders()));
             // Insert it.

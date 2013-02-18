@@ -55,7 +55,6 @@ public class ConnectivityToadlet extends Toadlet {
 	public void handleMethodGET(URI uri, final HTTPRequest request, ToadletContext ctx) throws ToadletContextClosedException, IOException {
 		PageMaker pageMaker = ctx.getPageMaker();
 		
-		final int mode = ctx.getPageMaker().parseMode(request, container);
 		PageNode page = pageMaker.getPageNode(NodeL10n.getBase().getString("ConnectivityToadlet.title"), ctx);
 		HTMLNode pageNode = page.outer;
 		HTMLNode contentNode = page.content;
@@ -106,15 +105,14 @@ public class ConnectivityToadlet extends Toadlet {
 		
 		HTMLNode table = summaryContent.addChild("table", "border", "0");
 		
-		for(int i=0;i<handlers.length;i++) {
-			UdpSocketHandler handler = handlers[i];
-			AddressTracker tracker = handlers[i].getAddressTracker();
+		for(UdpSocketHandler handler: handlers) {
+			AddressTracker tracker = handler.getAddressTracker();
 			HTMLNode row = table.addChild("tr");
 			row.addChild("td", handler.getTitle());
 			row.addChild("td", AddressTracker.statusString(tracker.getPortForwardStatus()));
 		}
 		
-		if(mode >= PageMaker.MODE_ADVANCED) {
+		if(ctx.getContainer().isAdvancedModeEnabled()) {
 		
 		// One box per port
 		
@@ -123,10 +121,10 @@ public class ConnectivityToadlet extends Toadlet {
 		String remote = l10n("remote");
 		long now = System.currentTimeMillis();
 		
-		for(int i=0;i<handlers.length;i++) {
+		for(UdpSocketHandler handler: handlers) {
 			// Peers
-			AddressTracker tracker = handlers[i].getAddressTracker();
-			HTMLNode portsContent = pageMaker.getInfobox("#", NodeL10n.getBase().getString("ConnectivityToadlet.byPortTitle", new String[] { "port", "status", "tunnelLength" }, new String[] { handlers[i].getTitle(), AddressTracker.statusString(tracker.getPortForwardStatus()), TimeUtil.formatTime(tracker.getLongestSendReceiveGap()) }), contentNode, "connectivity-port", false);
+			AddressTracker tracker = handler.getAddressTracker();
+			HTMLNode portsContent = pageMaker.getInfobox("#", NodeL10n.getBase().getString("ConnectivityToadlet.byPortTitle", new String[] { "port", "status", "tunnelLength" }, new String[] { handler.getTitle(), AddressTracker.statusString(tracker.getPortForwardStatus()), TimeUtil.formatTime(tracker.getLongestSendReceiveGap()) }), contentNode, "connectivity-port", false);
 			PeerAddressTrackerItem[] items = tracker.getPeerAddressTrackerItems();
 			table = portsContent.addChild("table");
 			HTMLNode row = table.addChild("tr");
@@ -138,9 +136,8 @@ public class ConnectivityToadlet extends Toadlet {
 			for(int j=0;j<AddressTrackerItem.TRACK_GAPS;j++) {
 				row.addChild("th", " "); // FIXME is <th/> valid??
 			}
-			for(int j=0;j<items.length;j++) {
+			for(PeerAddressTrackerItem item: items) {
 				row = table.addChild("tr");
-				PeerAddressTrackerItem item = items[j];
 				// Address
 				row.addChild("td", item.peer.toString());
 				// Sent/received packets
@@ -160,7 +157,7 @@ public class ConnectivityToadlet extends Toadlet {
 			}
 
 			// IPs
-			portsContent = pageMaker.getInfobox("#", NodeL10n.getBase().getString("ConnectivityToadlet.byIPTitle", new String[] { "ip", "status", "tunnelLength" }, new String[] { handlers[i].getTitle(), AddressTracker.statusString(tracker.getPortForwardStatus()), TimeUtil.formatTime(tracker.getLongestSendReceiveGap()) }), contentNode, "connectivity-ip", false);
+			portsContent = pageMaker.getInfobox("#", NodeL10n.getBase().getString("ConnectivityToadlet.byIPTitle", new String[] { "ip", "status", "tunnelLength" }, new String[] { handler.getTitle(), AddressTracker.statusString(tracker.getPortForwardStatus()), TimeUtil.formatTime(tracker.getLongestSendReceiveGap()) }), contentNode, "connectivity-ip", false);
 			InetAddressAddressTrackerItem[] ipItems = tracker.getInetAddressTrackerItems();
 			table = portsContent.addChild("table");
 			row = table.addChild("tr");
@@ -172,9 +169,8 @@ public class ConnectivityToadlet extends Toadlet {
 			for(int j=0;j<AddressTrackerItem.TRACK_GAPS;j++) {
 				row.addChild("th", " "); // FIXME is <th/> valid??
 			}
-			for(int j=0;j<ipItems.length;j++) {
+			for(InetAddressAddressTrackerItem item: ipItems) {
 				row = table.addChild("tr");
-				InetAddressAddressTrackerItem item = ipItems[j];
 				// Address
 				row.addChild("td", item.addr.toString());
 				// Sent/received packets

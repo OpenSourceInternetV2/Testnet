@@ -2,9 +2,9 @@ package freenet.store;
 
 import java.io.IOException;
 
-import com.sleepycat.je.DatabaseException;
-
 import freenet.node.stats.StoreAccessStats;
+import freenet.node.useralerts.UserAlertManager;
+import freenet.support.Ticker;
 
 public class NullFreenetStore<T extends StorableBlock> implements FreenetStore<T> {
 
@@ -59,7 +59,7 @@ public class NullFreenetStore<T extends StorableBlock> implements FreenetStore<T
 
 	@Override
 	public void setMaxKeys(long maxStoreKeys, boolean shrinkNow)
-			throws DatabaseException, IOException {
+			throws IOException {
 		// Do nothing
 	}
 
@@ -100,4 +100,18 @@ public class NullFreenetStore<T extends StorableBlock> implements FreenetStore<T
 		return null;
 	}
 
+	@Override
+	public boolean start(Ticker ticker, boolean longStart) throws IOException {
+		return false;
+	}
+
+	@Override
+	public void setUserAlertManager(UserAlertManager userAlertManager) {
+		// Do nothing
+	}
+	
+	@Override
+	public FreenetStore<T> getUnderlyingStore() {
+		return this;
+	}
 }

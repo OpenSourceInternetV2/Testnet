@@ -63,10 +63,10 @@ public class N2NTMToadlet extends Toadlet {
 			}
 			if (input_hashcode != -1) {
 				DarknetPeerNode[] peerNodes = node.getDarknetConnections();
-				for (int i = 0; i < peerNodes.length; i++) {
-					int peer_hashcode = peerNodes[i].hashCode();
+				for (DarknetPeerNode pn: peerNodes) {
+					int peer_hashcode = pn.hashCode();
 					if (peer_hashcode == input_hashcode) {
-						peernode_name = peerNodes[i].getName();
+						peernode_name = pn.getName();
 						break;
 					}
 				}
@@ -80,7 +80,7 @@ public class N2NTMToadlet extends Toadlet {
 			}
 			HashMap<String, String> peers = new HashMap<String, String>();
 			peers.put(input_hashcode_string, peernode_name);
-			createN2NTMSendForm(pageNode, ctx.getPageMaker().parseMode(request, container), contentNode, ctx, peers);
+			createN2NTMSendForm(pageNode, ctx.getContainer().isAdvancedModeEnabled(), contentNode, ctx, peers);
 			this.writeHTMLReply(ctx, 200, "OK", pageNode.generate());
 			return;
 		}
@@ -182,10 +182,8 @@ public class N2NTMToadlet extends Toadlet {
 			HTMLNode peerTableHeaderRow = peerTable.addChild("tr");
 			peerTableHeaderRow.addChild("th", l10n("peerName"));
 			peerTableHeaderRow.addChild("th", l10n("sendStatus"));
-			for (int i = 0; i < peerNodes.length; i++) {
-				if (request.isPartSet("node_" + peerNodes[i].hashCode())) {
-					DarknetPeerNode pn = peerNodes[i];
-					
+			for (DarknetPeerNode pn: peerNodes) {
+				if (request.isPartSet("node_" + pn.hashCode())) {
 					int status;
 					
 					if(filename != null) {
@@ -275,7 +273,7 @@ public class N2NTMToadlet extends Toadlet {
 		ctx.sendReplyHeaders(302, "Found", headers, null, 0);
 	}
 
-	public static void createN2NTMSendForm(HTMLNode pageNode, int mode,
+	public static void createN2NTMSendForm(HTMLNode pageNode, boolean advancedMode,
 			HTMLNode contentNode, ToadletContext ctx, HashMap<String, String> peers)
 			throws ToadletContextClosedException, IOException {
 		HTMLNode infobox = contentNode.addChild("div", new String[] { "class",
@@ -307,7 +305,7 @@ public class N2NTMToadlet extends Toadlet {
 			messageForm.addChild("input", new String[] { "type", "name", "value" }, new String[] { "submit", "n2nm-browse", NodeL10n.getBase().getString("QueueToadlet.insertFileBrowseButton") + "..." });
 			messageForm.addChild("br");
 		}
-		if(mode >= PageMaker.MODE_ADVANCED){
+		if(advancedMode){
 			messageForm.addChild("#", NodeL10n.getBase().getString("N2NTMToadlet.sizeWarning", "limit", SizeUtil.formatSize(maxSize(), true)));
 			messageForm.addChild("br");
 			messageForm.addChild("#", NodeL10n.getBase().getString("QueueToadlet.insertFileLabel") + ": ");

@@ -11,7 +11,7 @@ import freenet.support.SimpleFieldSet;
  *
  * A filter on BootstrappingDecayingRunningAverage which makes it aware of the circular keyspace.
  */
-public class DecayingKeyspaceAverage implements RunningAverage {
+public final class DecayingKeyspaceAverage implements RunningAverage, Cloneable {
 
 	private static final long serialVersionUID = 5129429614949179428L;
 	/**
@@ -35,11 +35,13 @@ public class DecayingKeyspaceAverage implements RunningAverage {
          */
         public DecayingKeyspaceAverage(BootstrappingDecayingRunningAverage a) {
 		//check the max/min values? ignore them?
-		avg = (BootstrappingDecayingRunningAverage) a.clone();
+		avg = a.clone();
 	}
 
 	@Override
 	public synchronized DecayingKeyspaceAverage clone() {
+		// Override clone() for deep copy.
+		// Implement Cloneable to shut up findbugs.
 		return new DecayingKeyspaceAverage(avg);
 	}
 

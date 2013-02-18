@@ -1,24 +1,24 @@
 package freenet.support.math;
 
-public class TrivialRunningAverage implements RunningAverage {
+public final class TrivialRunningAverage implements RunningAverage, Cloneable {
 
 	private static final long serialVersionUID = 1L;
 	private long reports;
 	private double total;
-	
-        /**
-         *
-         * @param average
-         */
-        public TrivialRunningAverage(TrivialRunningAverage average) {
+
+	/**
+	 *
+	 * @param average
+	 */
+	public TrivialRunningAverage(TrivialRunningAverage average) {
 		this.reports = average.reports;
 		this.total = average.total;
 	}
 
-        /**
-         *
-         */
-        public TrivialRunningAverage() {
+	/**
+	 *
+	 */
+	public TrivialRunningAverage() {
 		reports = 0;
 		total = 0.0;
 	}
@@ -27,7 +27,7 @@ public class TrivialRunningAverage implements RunningAverage {
 	public synchronized long countReports() {
 		return reports;
 	}
-	
+
 	public synchronized double totalValue() {
 		return total;
 	}
@@ -68,6 +68,8 @@ public class TrivialRunningAverage implements RunningAverage {
 
 	@Override
 	public TrivialRunningAverage clone() {
+		// Override clone() for synchronization.
+		// Implement Cloneable to shut up findbugs.
 		synchronized (this) {
 			return new TrivialRunningAverage(this);
 		}

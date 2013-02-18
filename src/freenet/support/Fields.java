@@ -9,6 +9,7 @@ import java.util.GregorianCalendar;
 import java.util.StringTokenizer;
 import java.util.TimeZone;
 
+import freenet.l10n.NodeL10n;
 import freenet.support.Logger.LogLevel;
 
 /**
@@ -211,12 +212,15 @@ public abstract class Fields {
 	}
 
 	public static String textList(String[] ls, char ch) {
+		if (ls.length == 0) return "";
 		StringBuilder sb = new StringBuilder();
-		for(int i = 0; i < ls.length; i++) {
-			sb.append(ls[i]);
-			if(i != ls.length - 1)
-				sb.append(ch);
+		for(String s: ls) {
+			sb.append(s);
+			sb.append(ch);
 		}
+		// assert(sb.length() > 0); -- always true as ls.length != 0
+		// remove last ch
+		sb.deleteCharAt(sb.length()-1);
 		return sb.toString();
 	}
 
@@ -231,12 +235,11 @@ public abstract class Fields {
 	}
 
 	public static String numberList(long[] ls) {
+		if (ls.length == 0) return "";
 		char[] numberBuf = new char[64];
 		StringBuilder listBuf = new StringBuilder(ls.length * 18);
-		for(int i = 0; i < ls.length; i++) {
-
+		for(long l: ls) {
 			// Convert the number into a string in a fixed size buffer.
-			long l = ls[i];
 			int charPos = 64;
 			do {
 				numberBuf[--charPos] = digits[(int) (l & 0x0F)];
@@ -244,9 +247,11 @@ public abstract class Fields {
 			} while(l != 0);
 
 			listBuf.append(numberBuf, charPos, (64 - charPos));
-			if(i != ls.length - 1)
-				listBuf.append(',');
+			listBuf.append(',');
 		}
+		// assert(listBuf.length() > 0); -- always true as ls.length != 0
+		// remove last comma
+		listBuf.deleteCharAt(listBuf.length()-1);
 		return listBuf.toString();
 	}
 
@@ -463,12 +468,15 @@ public abstract class Fields {
 	 * @return
 	 */
 	public static String commaList(Object[] addr, char comma) {
+		if (addr.length == 0) return "";
 		StringBuilder sb = new StringBuilder();
-		for(int i = 0; i < addr.length; i++) {
-			sb.append(addr[i]);
-			if(i != addr.length - 1)
-				sb.append(comma);
+		for(Object a: addr) {
+			sb.append(a);
+			sb.append(comma);
 		}
+		// assert(sb.length() > 0); -- always true as addr.length != 0
+		// remove last comma
+		sb.deleteCharAt(sb.length()-1);
 		return sb.toString();
 	}
 
@@ -538,6 +546,10 @@ public abstract class Fields {
 		return x;
 	}
 
+	public static int bytesToInt(byte[] buf) {
+		return bytesToInt(buf, 0);
+	}
+	
 	/**
 	 * Convert an array of bytes to a single int.
 	 */
@@ -678,6 +690,29 @@ public abstract class Fields {
 		return res;
 	}
 
+	/* Removes up to one "(bits) per second" qualifier at the end of the string. If present such a qualifier will
+	 * prevent parsing as a size.
+	 * @see freenet.support.Fields#parseInt(String)
+	 */
+	public static String trimPerSecond(String limit) {
+		limit = limit.trim();
+		if(limit.isEmpty()) return "";
+		/*
+		 * IEC endings are case sensitive, so the input string's case should not be modified. However, the
+		 * qualifiers should not be case sensitive.
+		 */
+		final String lower = limit.toLowerCase();
+		for(String ending :
+			new String[] {
+				"/s", "/sec", "/second", "bps", NodeL10n.getBase().getString("FirstTimeWizardToadlet.bandwidthPerSecond").toLowerCase()
+			}) {
+			if(lower.endsWith(ending)) {
+				return limit.substring(0, limit.length() - ending.length());
+			}
+		}
+		return limit;
+	}
+
 	/**
 	 * Parse a human-readable string possibly including SI and ICE units into an integer.
 	 * @throws NumberFormatException
@@ -804,112 +839,6 @@ public abstract class Fields {
 	}
 
 	/**
-	 * Assumes the array is sorted in ascending order, [begin] is lowest and [end] is highest.
-	 */
-	public static int binarySearch(long[] values, long key, int origBegin, int origEnd) {
-		int begin = origBegin;
-		int end = origEnd;
-		while(true) {
-			if(end < begin)	// so we can use origEnd=length-1 without worrying length=0
-				return -begin - 1;
-
-			int middle = (begin + end) >>> 1;
-			if(values[middle] == key)
-				return middle;
-
-			if(values[middle] > key)
-				end = middle - 1;
-			else if(values[middle] < key)
-				begin = middle + 1;
-		}
-	}
-
-	/**
-	 * Assumes the array is sorted in ascending order, [begin] is lowest and [end] is highest.
-	 */
-	public static int binarySearch(int[] values, int key, int origBegin, int origEnd) {
-		int begin = origBegin;
-		int end = origEnd;
-		while(true) {
-			if(end < begin)	// so we can use origEnd=length-1 without worrying length=0
-				return -begin - 1;
-
-			int middle = (begin + end) >>> 1;
-			if(values[middle] == key)
-				return middle;
-
-			if(values[middle] > key)
-				end = middle - 1;
-			else if(values[middle] < key)
-				begin = middle + 1;
-		}
-	}
-
-	/**
-	** Search a range of the given array using binary search. We use this
-	** because the corresponding method in java.util.Arrays is only available
-	** in JDK6 or later.
-	**
-	** Note that this implementation behaves exactly the same way as the one
-	** from Arrays, as opposed to {@link binarySearch(long[], long, int, int)}.
-	** In particular, the right endpoint here is <b>exclusive</b>.
-	**
-	** TODO JDK6: make this @deprecated when we move to JDK6.
-	**
-	** @throws ClassCastException if the comparator is {@code null} and the
-	**         array contains elements that are not {@link Comparable}, or the
-	**         comparator cannot handle any elements of the array.
-	** @throws IllegalArgumentException if {@code li} > {@code ri}
-	** @throws ArrayIndexOutOfBoundsException if {@code li} < 0 or {@code ri} >
-	**         {@code arr.length}.
-	*/
-	public static <T> int binarySearch(T[] arr, int li, int ri, T key, Comparator<? super T> cmp) {
-		int l = li, r = ri, m = 0;
-
-		if (li > ri) {
-			throw new IllegalArgumentException("L-index must not be greater than R-index");
-		}
-		if (li < 0 || ri > arr.length) {
-			throw new ArrayIndexOutOfBoundsException();
-		}
-
-		if (cmp == null) {
-			// natural ordering
-			while (l<=r) {
-				m = (l+r)>>>1;
-				@SuppressWarnings("unchecked") int c = ((Comparable<T>)arr[m]).compareTo(key);
-
-				if (c == 0) {
-					return m;
-				} else if (c > 0) {
-					r = m-1;
-				} else {
-					l = ++m; // gets the insertion point right on the last loop
-				}
-			}
-			return ~m;
-
-		} else {
-			// comparator
-			while (l<=r) {
-				m = (l+r)>>>1;
-				int c = cmp.compare(arr[m], key);
-
-				if (c == 0) {
-					return m;
-				} else if (c > 0) {
-					r = m-1;
-				} else {
-					l = ++m; // gets the insertion point right on the last loop
-				}
-			}
-			return ~m;
-
-		}
-
-	}
-
-	/**
 	 * Remove empty lines and trim head/trailing space
 	 *
 	 * @param str string to be trimmed
@@ -926,4 +855,123 @@ public abstract class Fields {
 		}
 		return r.toString();
 	}
+
+	/** Compare two versions. */
+	public static int compareVersion(String x, String y) {
+		// Used by the updater code so I don't want to risk excessive recursion with regexes.
+		int i = 0;
+		int j = 0;
+		boolean wantDigits = false;
+		while(true) {
+			String xDigits = null, yDigits = null;
+			int digits = getDigits(x, i, wantDigits);
+			if(digits > 0) {
+				xDigits = x.substring(i, i+digits);
+				i += digits;
+			}
+			digits = getDigits(y, j, wantDigits);
+			if(digits > 0) {
+				yDigits = y.substring(j, j+digits);
+				j += digits;
+			}
+			if(xDigits != null && yDigits == null)
+				return 1; // numbers > not numbers.
+			if(yDigits != null && xDigits == null)
+				return -1; // numbers > not numbers.
+			if(xDigits != null && yDigits != null) {
+				if(!xDigits.equals(yDigits)) {
+					if(wantDigits) {
+						try {
+							long a = Integer.parseInt(xDigits);
+							long b = Integer.parseInt(yDigits);
+							if(a > b) return 1;
+							if(a < b) return -1;
+							if(xDigits.length() > yDigits.length())
+								return -1; // Extra 0's at beginning.
+							if(yDigits.length() > xDigits.length())
+								return 1; // Extra 0's at beginning.
+						} catch (NumberFormatException e) {
+							// Too many digits!
+							return xDigits.compareTo(yDigits);
+						}
+					} else {
+						return xDigits.compareTo(yDigits);
+					}
+				}
+			}
+			if(i >= x.length() && j >= y.length()) return 0;
+			wantDigits = !wantDigits;
+		}
+		
+	}
+
+	static int getDigits(String x, int i, boolean wantDigits) {
+		int origI = i;
+		for(;i<x.length();i++) {
+			if(Character.isDigit(x.charAt(i)) != wantDigits)
+				break;
+		}
+		return i - origI;
+	}
+
+	public static int compareObjectID(Object o1, Object o2) {
+		int id1 = System.identityHashCode(o1);
+		int id2 = System.identityHashCode(o2);
+		if(id1 > id2) return 1;
+		if(id2 > id1) return -1;
+		return 0;
+	}
+	
+	/** Avoid issues with overflow, 2's complement. E.g. 0-Integer.MIN_VALUE = Integer.MIN_VALUE-0. */
+	public static final int compare(int x, int y) {
+		if(x > y) return 1;
+		if(y > x) return -1;
+		return 0;
+	}
+	
+	/** Avoid issues with overflow, 2's complement. */
+	public static final int compare(long x, long y) {
+		if(x > y) return 1;
+		if(y > x) return -1;
+		return 0;
+	}
+
+	/** Avoid issues with NaN's. */
+	public static final int compare(double x, double y) {
+		if(Double.isNaN(x)) {
+			if(Double.isNaN(y)) {
+				return 0; // kind of!
+			} else {
+				return -1; // second is better
+			}
+		} else if(Double.isNaN(y)) {
+			return 1; // first is better
+		} else {
+			if(x > y)
+				return 1;
+			else if(x < y)
+				return -1;
+		}
+		return 0;
+	}
+
+	/** Avoid issues with NaN's. */
+	public static final int compare(float x, float y) {
+		if(Float.isNaN(x)) {
+			if(Float.isNaN(y)) {
+				return 0; // kind of!
+			} else {
+				return -1; // second is better
+			}
+		} else if(Float.isNaN(y)) {
+			return 1; // first is better
+		} else {
+			if(x > y)
+				return 1;
+			else if(x < y)
+				return -1;
+		}
+		return 0;
+	}
+
 }

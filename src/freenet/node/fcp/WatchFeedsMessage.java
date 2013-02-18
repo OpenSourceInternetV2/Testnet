@@ -3,7 +3,6 @@ package freenet.node.fcp;
 import com.db4o.ObjectContainer;
 
 import freenet.node.Node;
-import freenet.support.Fields;
 import freenet.support.SimpleFieldSet;
 
 public class WatchFeedsMessage extends FCPMessage {
@@ -12,7 +11,7 @@ public class WatchFeedsMessage extends FCPMessage {
 	public final boolean enabled;
 
 	public WatchFeedsMessage(SimpleFieldSet fs) {
-		enabled = Fields.stringToBool(fs.get("Enabled"), true);
+		enabled = fs.getBoolean("Enabled", true);
 	}
 
 	@Override

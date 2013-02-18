@@ -15,7 +15,7 @@ import freenet.support.Logger;
  * For most failure modes, except INTERNAL_ERROR there will be no stack trace, or it will be unhelpful or 
  * inaccurate. 
  */
-public class FetchException extends Exception {
+public class FetchException extends Exception implements Cloneable {
 	private static volatile boolean logMINOR;
 	
 	static {
@@ -192,7 +192,6 @@ public class FetchException extends Exception {
 		errorCodes = null;
 		initCause(t);
 		newURI = null;
-		expectedSize = -1;
 		if(mode == INTERNAL_ERROR)
 			Logger.error(this, "Internal error: "+this);
 		else if(logMINOR) 
@@ -210,7 +209,6 @@ public class FetchException extends Exception {
 		errorCodes = null;
 		initCause(t);
 		newURI = null;
-		expectedSize = -1;
 		if(mode == INTERNAL_ERROR)
 			Logger.error(this, "Internal error: "+this);
 		else if(logMINOR) 
@@ -349,7 +347,7 @@ public class FetchException extends Exception {
 	public String toString() {
 		StringBuilder sb = new StringBuilder(200);
 		sb.append("FetchException:");
-		sb.append(getShortMessage(mode));
+		sb.append(getMessage(mode));
 		sb.append(':');
 		sb.append(newURI);
 		sb.append(':');
@@ -365,6 +363,13 @@ public class FetchException extends Exception {
 		return sb.toString();
 	}
 	
+	public String toUserFriendlyString() {
+		if(extraMessage == null)
+			return getShortMessage(mode);
+		else
+			return getShortMessage(mode) + " : " + extraMessage;
+	}
+
 	/** Get the (localised) long explanation for this failure mode. */
 	public static String getMessage(int mode) {
 		String ret = NodeL10n.getBase().getString("FetchException.longError."+mode);
@@ -450,6 +455,12 @@ public class FetchException extends Exception {
 	public static final int CONTENT_HASH_FAILED = 34;
 	/** FEC decode produced a block that doesn't match the data in the original splitfile. */
 	public static final int SPLITFILE_DECODE_ERROR = 35;
+	/** For a filtered download to disk, the MIME type is incompatible with the 
+	 * extension, potentially resulting in data on disk filtered with one MIME 
+	 * type but accessed by the operating system with another MIME type. This 
+	 * is equivalent to it not being filtered at all i.e. potentially dangerous.
+	 */
+	public static final int MIME_INCOMPATIBLE_WITH_EXTENSION = 36;
 
 	/** Is an error fatal i.e. is there no point retrying? */
 	public boolean isFatal() {
@@ -501,6 +512,7 @@ public class FetchException extends Exception {
 			case CONTENT_VALIDATION_FAILED:
 			case CONTENT_VALIDATION_UNKNOWN_MIME:
 			case CONTENT_VALIDATION_BAD_MIME:
+			case MIME_INCOMPATIBLE_WITH_EXTENSION:
 				return true;
 
 		// Wierd ones
@@ -566,6 +578,7 @@ public class FetchException extends Exception {
 			case CONTENT_VALIDATION_FAILED:
 			case CONTENT_VALIDATION_UNKNOWN_MIME:
 			case CONTENT_VALIDATION_BAD_MIME:
+			case MIME_INCOMPATIBLE_WITH_EXTENSION:
 				return true;
 
 		// Wierd ones
@@ -605,6 +618,7 @@ public class FetchException extends Exception {
 	
 	@Override
 	public FetchException clone() {
+		// Cloneable shuts up findbugs but we need a deep copy.
 		return new FetchException(this);
 	}
 

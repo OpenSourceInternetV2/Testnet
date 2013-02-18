@@ -14,33 +14,29 @@ import freenet.config.InvalidConfigValueException;
 import freenet.config.PersistentConfig;
 import freenet.config.SubConfig;
 import freenet.crypt.DiffieHellman;
+import freenet.crypt.JceLoader;
 import freenet.crypt.RandomSource;
 import freenet.crypt.SSL;
 import freenet.crypt.Yarrow;
 import freenet.support.Executor;
 import freenet.support.Logger;
-import freenet.support.PooledExecutor;
-import freenet.support.SimpleFieldSet;
 import freenet.support.Logger.LogLevel;
 import freenet.support.LoggerHook.InvalidThresholdException;
+import freenet.support.PooledExecutor;
+import freenet.support.SimpleFieldSet;
 import freenet.support.io.NativeThread;
 
 /**
  *  @author nextgens
  *
- *  A class to tie the wrapper and the node (needed for self-restarting support)
+ *  A class to tie the wrapper and the node (needed for self-restarting support).
+ *  
+ *  There will only ever be one instance of NodeStarter.
  */
 public class NodeStarter implements WrapperListener {
 
 	private Node node;
 	private static LoggingConfigHandler logConfigHandler;
-	/** Freenet will not function at all without at least this build of freenet-ext.jar.
-	 * This will be included in the jar manifest file so we can check it when we download new builds. */
-	public final static int REQUIRED_EXT_BUILD_NUMBER = 29;
-	/** Freenet will function best with this build of freenet-ext.jar.
-	 * It may be required in the near future. The node will try to download it.
-	 * The node will not update to a later ext version than this, because that might be incompatible. */
-	public final static int RECOMMENDED_EXT_BUILD_NUMBER = 29;
 	/*
 	(File.separatorChar == '\\') &&
 	(System.getProperty("os.arch").toLowerCase().matches("(i?[x0-9]86_64|amd64)")) ? 6 : 2;
@@ -58,10 +54,23 @@ public class NodeStarter implements WrapperListener {
 	// experimental osgi support
 	private static NodeStarter nodestarter_osgi = null;
 
+	public static final String NO_BCPROV_WARNING =
+		"FAILED TO LOAD BOUNCY CASTLE CRYPTO LIBRARY! \n" +
+		"This means the file \"bcprov-jdk15on-147.jar\" is not found or not on the classpath. \n" +
+		"Freenet will not be able to use the newer link setup code or newer format keys. \n" +
+		"Unless you installed it yourself, THIS IS A SEVERE BUG!";
+	
+	private volatile static boolean BCPROV_LOAD_FAILED = true;
+	
+	public static boolean bcProvLoadFailed() {
+		return BCPROV_LOAD_FAILED;
+	}
+	
 	/*---------------------------------------------------------------
 	 * Constructors
 	 *-------------------------------------------------------------*/
 	private NodeStarter() {
+		BCPROV_LOAD_FAILED = JceLoader.BouncyCastle == null;
 	}
 
 	public NodeStarter get() {

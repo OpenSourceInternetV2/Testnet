@@ -135,6 +135,7 @@ public class PersistentBlobTempBucketFactory {
 			initRangeDump(container);
 	}
 	
+	@SuppressWarnings("unchecked")
 	private BitArray createFreeBlocksCache(ObjectContainer container) throws IOException {
 		System.err.println("Creating free blocks cache...");
 		long size;
@@ -218,6 +219,7 @@ public class PersistentBlobTempBucketFactory {
 		return freeBlocksCache;
 	}
 
+	@SuppressWarnings("unchecked")
 	private void initRangeDump(ObjectContainer container) {
 		
 		long size;
@@ -287,8 +289,10 @@ public class PersistentBlobTempBucketFactory {
 	private void initSlotFinder() {
 		slotFinder = new DBJob() {
 		
+		@SuppressWarnings("unchecked")
 		@Override
 		public boolean run(ObjectContainer container, ClientContext context) {
+			final boolean logMINOR = PersistentBlobTempBucketFactory.logMINOR;
 			int added = 0;
 			
 			while(true) {
@@ -356,7 +360,6 @@ outer:		while(true) {
 			query.constrain(PersistentBlobTempBucketTag.class);
 			query.descend("isFree").constrain(true).and(query.descend("index").constrain(l).smaller());
 			ObjectSet<PersistentBlobTempBucketTag> tags = query.execute();
-			Long[] notCommitted;
 			synchronized(PersistentBlobTempBucketFactory.this) {
 				while(tags.hasNext()) {
 					PersistentBlobTempBucketTag tag = tags.next();
@@ -608,6 +611,7 @@ outer:		while(true) {
 
 	private long lastCheckedEnd = -1;
 	
+	@SuppressWarnings("unchecked")
 	public synchronized void remove(PersistentBlobTempBucket bucket, ObjectContainer container) {
 		if(logMINOR)
 			Logger.minor(this, "Removing bucket "+bucket+" for slot "+bucket.getIndex()+" from database", new Exception("debug"));
@@ -673,7 +677,9 @@ outer:		while(true) {
 	
 	static boolean DISABLE_SANITY_CHECKS_DEFRAG = false;
 	
+	@SuppressWarnings("unchecked")
 	boolean maybeShrink(ObjectContainer container) {
+		final boolean logMINOR = PersistentBlobTempBucketFactory.logMINOR;
 		
 		if(logMINOR) Logger.minor(this, "maybeShrink()");
 		
@@ -793,12 +799,9 @@ outer:				while(true) {
 							if(newTag == null)
 								throw new NullPointerException();
 							
-							PersistentBlobTempBucket shadow = null;
-							if(shadows.containsKey(lastCommitted)) {
-								shadow = shadows.get(lastCommitted);
-								shadows.remove(lastCommitted);
+							PersistentBlobTempBucket shadow = shadows.remove(lastCommitted);
+							if(shadow != null)
 								shadows.put(newTag.index, shadow);
-							}
 							
 							// Synchronize on the target.
 							// We must ensure that the shadow is moved also before we relinquish the lock on either bucket.

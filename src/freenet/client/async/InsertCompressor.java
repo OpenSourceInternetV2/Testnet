@@ -136,7 +136,6 @@ public class InsertCompressor implements CompressJob {
 					if(logMINOR)
 						Logger.minor(this, "Attempt to compress using " + comp);
 					// Only produce if we are compressing *the original data*
-					final int phase = comp.metadataID;
 					if(persistent) {
 						context.jobRunner.queue(new DBJob() {
 
@@ -344,6 +343,7 @@ public class InsertCompressor implements CompressJob {
 		return compressor;
 	}
 
+	@SuppressWarnings("unchecked")
 	public static void load(ObjectContainer container, ClientContext context) {
 		final long handle = context.nodeDBHandle;
 		Query query = container.query();

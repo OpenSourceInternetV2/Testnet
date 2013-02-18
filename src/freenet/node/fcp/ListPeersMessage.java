@@ -7,7 +7,6 @@ import com.db4o.ObjectContainer;
 
 import freenet.node.Node;
 import freenet.node.PeerNode;
-import freenet.support.Fields;
 import freenet.support.SimpleFieldSet;
 
 public class ListPeersMessage extends FCPMessage {
@@ -18,8 +17,8 @@ public class ListPeersMessage extends FCPMessage {
 	static final String NAME = "ListPeers";
 	
 	public ListPeersMessage(SimpleFieldSet fs) {
-		withMetadata = Fields.stringToBool(fs.get("WithMetadata"), false);
-		withVolatile = Fields.stringToBool(fs.get("WithVolatile"), false);
+		withMetadata = fs.getBoolean("WithMetadata", false);
+		withVolatile = fs.getBoolean("WithVolatile", false);
 		this.identifier = fs.get("Identifier");
 		fs.removeValue("Identifier");
 	}
@@ -41,8 +40,7 @@ public class ListPeersMessage extends FCPMessage {
 			throw new MessageInvalidException(ProtocolErrorMessage.ACCESS_DENIED, "ListPeers requires full access", identifier, false);
 		}
 		PeerNode[] nodes = node.getPeerNodes();
-		for(int i = 0; i < nodes.length; i++) {
-			PeerNode pn = nodes[i];
+		for(PeerNode pn: nodes) {
 			handler.outputHandler.queue(new PeerMessage(pn, withMetadata, withVolatile, identifier));
 		}
 		

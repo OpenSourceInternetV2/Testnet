@@ -27,7 +27,7 @@ import com.db4o.ObjectContainer;
 import freenet.client.async.ClientContext;
 import freenet.keys.FreenetURI;
 import freenet.support.ExceptionWrapper;
-import freenet.support.LRUHashtable;
+import freenet.support.LRUMap;
 import freenet.support.Logger;
 import freenet.support.MutableBoolean;
 import freenet.support.Logger.LogLevel;
@@ -111,7 +111,7 @@ public class ArchiveManager {
 
 	// ArchiveHandler's
 	final int maxArchiveHandlers;
-	private final LRUHashtable<FreenetURI, ArchiveStoreContext> archiveHandlers;
+	private final LRUMap<FreenetURI, ArchiveStoreContext> archiveHandlers;
 
 	// Data cache
 	/** Maximum number of cached ArchiveStoreItems */
@@ -121,7 +121,7 @@ public class ArchiveManager {
 	/** Currently cached data in bytes */
 	private long cachedData;
 	/** Map from ArchiveKey to ArchiveStoreElement */
-	private final LRUHashtable<ArchiveKey, ArchiveStoreItem> storedData;
+	private final LRUMap<ArchiveKey, ArchiveStoreItem> storedData;
 	/** Bucket Factory */
 	private final BucketFactory tempBucketFactory;
 
@@ -142,10 +142,12 @@ public class ArchiveManager {
 	 */
 	public ArchiveManager(int maxHandlers, long maxCachedData, long maxArchivedFileSize, int maxCachedElements, BucketFactory tempBucketFactory) {
 		maxArchiveHandlers = maxHandlers;
-		archiveHandlers = new LRUHashtable<FreenetURI, ArchiveStoreContext>();
+		// FIXME PERFORMANCE I'm assuming there isn't much locality here, so it's faster to use the FAST_COMPARATOR.
+		// This may not be true if there are a lot of sites with many containers all inserted as individual SSKs?
+		archiveHandlers = LRUMap.createSafeMap(FreenetURI.FAST_COMPARATOR);
 		this.maxCachedElements = maxCachedElements;
 		this.maxCachedData = maxCachedData;
-		storedData = new LRUHashtable<ArchiveKey, ArchiveStoreItem>();
+		storedData = new LRUMap<ArchiveKey, ArchiveStoreItem>();
 		this.maxArchivedFileSize = maxArchivedFileSize;
 		this.tempBucketFactory = tempBucketFactory;
 		logMINOR = Logger.shouldLog(LogLevel.MINOR, this);
@@ -344,8 +346,6 @@ public class ArchiveManager {
 				if(logMINOR) Logger.minor(this, "dealing with LZMA");
 				is = new LzmaInputStream(data.getInputStream());
 				wrapper = null;
-			} else if(ctype != null) {
-				throw new ArchiveFailureException("Unknown or unsupported compression algorithm " + archiveType);
 			} else {
 				wrapper = null;
 			}
@@ -381,7 +381,12 @@ public class ArchiveManager {
 			boolean gotMetadata = false;
 
 outerTAR:		while(true) {
+				try {
 				entry = tarIS.getNextEntry();
+				} catch (IllegalArgumentException e) {
+					// Annoyingly, it can throw this on some corruptions...
+					throw new ArchiveFailureException("Error reading archive: "+e.getMessage(), e);
+				}
 				if(entry == null) break;
 				if(entry.isDirectory()) continue;
 				String name = stripLeadingSlashes(entry.getName());
@@ -584,18 +589,20 @@ outerZIP:		while(true) {
 	}
 
 	private int resolve(MetadataUnresolvedException e, int x, Bucket bucket, ArchiveStoreContext ctx, FreenetURI key, MutableBoolean gotElement, String element2, ArchiveExtractCallback callback, ObjectContainer container, ClientContext context) throws IOException, ArchiveFailureException {
-		Metadata[] m = e.mustResolve;
-		for(int i=0;i<m.length;i++) {
+		for(Metadata m: e.mustResolve) {
 			byte[] buf;
 			try {
-				buf = m[i].writeToByteArray();
+				buf = m.writeToByteArray();
 			} catch (MetadataUnresolvedException e1) {
 				x = resolve(e, x, bucket, ctx, key, gotElement, element2, callback, container, context);
 				continue;
 			}
 			OutputStream os = bucket.getOutputStream();
+			try {
 			os.write(buf);
+			} finally {
 			os.close();
+			}
 			addStoreElement(ctx, key, ".metadata-"+(x++), bucket, gotElement, element2, callback, container, context);
 		}
 		return x;

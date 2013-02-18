@@ -11,7 +11,6 @@ import freenet.keys.FreenetURI;
 import freenet.keys.USK;
 import freenet.node.Node;
 import freenet.node.RequestStarter;
-import freenet.support.Fields;
 import freenet.support.SimpleFieldSet;
 
 /**
@@ -52,7 +51,7 @@ public class SubscribeUSKMessage extends FCPMessage {
 		} catch (MalformedURLException e) {
 			throw new MessageInvalidException(ProtocolErrorMessage.INVALID_FIELD, "Could not parse URI: "+e, identifier, false);
 		}
-		this.dontPoll = Fields.stringToBool(fs.get("DontPoll"), false);
+		this.dontPoll = fs.getBoolean("DontPoll", false);
 		if(!dontPoll)
 			this.sparsePoll = fs.getBoolean("SparsePoll", false);
 		else

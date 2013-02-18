@@ -15,15 +15,17 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.PrintStream;
+import java.io.UnsupportedEncodingException;
 import java.net.InetAddress;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.Deque;
 import java.util.GregorianCalendar;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.Locale;
 import java.util.StringTokenizer;
 import java.util.TimeZone;
@@ -59,6 +61,8 @@ public class FileLoggerHook extends LoggerHook implements Closeable {
 
 	protected int INTERVAL = Calendar.MINUTE;
 	protected int INTERVAL_MULTIPLIER = 5;
+	
+	private static final String ENCODING = "UTF-8";
 
         private static volatile boolean logMINOR;
 	static {
@@ -136,7 +140,7 @@ public class FileLoggerHook extends LoggerHook implements Closeable {
 	private File currentLogFile;
 	private long currentLogFileStartTime;
 	private long currentLogFileEndTime;
-	protected final LinkedList<OldLogFile> logFiles = new LinkedList<OldLogFile>();
+	protected final Deque<OldLogFile> logFiles = new ArrayDeque<OldLogFile>();
 	private long oldLogFilesDiskSpaceUsage = 0;
 
 	private static class OldLogFile {
@@ -527,6 +531,7 @@ public class FileLoggerHook extends LoggerHook implements Closeable {
 						// buffer -> file
 						o = new BufferedOutputStream(o, 512*1024);
 					}
+					o.write(BOM);
 					return o;
 				} catch (IOException e) {
 					System.err.println(
@@ -540,6 +545,16 @@ public class FileLoggerHook extends LoggerHook implements Closeable {
 					sleepTime += sleepTime;
 				}
 			}
+		}
+	}
+	
+	private static final byte[] BOM;
+	
+	static {
+		try {
+			BOM = (""+(char)0xFEFF).getBytes(ENCODING);
+		} catch (UnsupportedEncodingException e) {
+			throw new Error(e);
 		}
 	}
 
@@ -726,8 +741,7 @@ public class FileLoggerHook extends LoggerHook implements Closeable {
 						System.out.println("Renaming to: "+numericSameDateFilename);
 						FileUtil.renameTo(currentFilename, numericSameDateFilename);
 						synchronized(logFiles) {
-							for(int i=0;i<logFiles.size();i++) {
-								OldLogFile f = logFiles.get(i);
+							for(OldLogFile f : logFiles) {
 								if(f.filename.equals(currentFilename)) {
 									logFiles.remove(f);
 									logFiles.add(new OldLogFile(numericSameDateFilename, f.start, f.end, f.size));
@@ -782,7 +796,7 @@ public class FileLoggerHook extends LoggerHook implements Closeable {
 		String fmt,
 		String dfmt,
 		LogLevel threshold) throws IntervalParseException {
-		this(new PrintStream(os), fmt, dfmt, threshold, true);
+		this(os, fmt, dfmt, threshold, true);
 		logStream = os;
 	}
 	
@@ -791,7 +805,7 @@ public class FileLoggerHook extends LoggerHook implements Closeable {
 			String fmt,
 			String dfmt,
 			String threshold) throws InvalidThresholdException, IntervalParseException {
-			this(new PrintStream(os), fmt, dfmt, LogLevel.valueOf(threshold.toUpperCase()), true);
+			this(os, fmt, dfmt, LogLevel.valueOf(threshold.toUpperCase()), true);
 			logStream = os;
 		}
 
@@ -809,7 +823,7 @@ public class FileLoggerHook extends LoggerHook implements Closeable {
 	 * @throws IntervalParseException 
 	 */
 	public FileLoggerHook(
-		PrintStream stream,
+		OutputStream stream,
 		String fmt,
 		String dfmt,
 		LogLevel threshold,
@@ -819,10 +833,15 @@ public class FileLoggerHook extends LoggerHook implements Closeable {
 	}
 
 	public void start() {
-		if(redirectStdOut)
-			System.setOut(new PrintStream(new OutputStreamLogger(LogLevel.NORMAL, "Stdout: ")));
-		if(redirectStdErr)
-			System.setErr(new PrintStream(new OutputStreamLogger(LogLevel.ERROR, "Stderr: ")));
+		if(redirectStdOut) {
+			try {
+				System.setOut(new PrintStream(new OutputStreamLogger(LogLevel.NORMAL, "Stdout: ", ENCODING), false, ENCODING));
+				if(redirectStdErr)
+					System.setErr(new PrintStream(new OutputStreamLogger(LogLevel.ERROR, "Stderr: ", ENCODING), false, ENCODING));
+			} catch (UnsupportedEncodingException e) {
+				throw new Error(e);
+			}
+		}
 		WriterThread wt = new WriterThread();
 		wt.setDaemon(true);
 		CloserThread ct = new CloserThread();
@@ -890,8 +909,8 @@ public class FileLoggerHook extends LoggerHook implements Closeable {
 		StringBuilder sb = new StringBuilder();
 
 		boolean comment = false;
-		for (int i = 0; i < f.length; ++i) {
-			int type = numberOf(f[i]);
+		for (char fi: f) {
+			int type = numberOf(fi);
 			if(type == UNAME)
 				getUName();
 			if (!comment && (type != 0)) {
@@ -901,11 +920,11 @@ public class FileLoggerHook extends LoggerHook implements Closeable {
 					sb = new StringBuilder();
 				}
 				fmtVec.add(type);
-			} else if (f[i] == '\\') {
+			} else if (fi == '\\') {
 				comment = true;
 			} else {
 				comment = false;
-				sb.append(f[i]);
+				sb.append(fi);
 			}
 		}
 		if (sb.length() > 0) {
@@ -946,8 +965,8 @@ public class FileLoggerHook extends LoggerHook implements Closeable {
 		StringBuilder sb = new StringBuilder( e == null ? 512 : 1024 );
 		int sctr = 0;
 
-		for (int i = 0; i < fmt.length; ++i) {
-			switch (fmt[i]) {
+		for (int f: fmt) {
+			switch (f) {
 				case 0 :
 					sb.append(str[sctr++]);
 					break;
@@ -995,9 +1014,9 @@ public class FileLoggerHook extends LoggerHook implements Closeable {
 				sb.append("(no stack trace)\n");
 			else {
 				sb.append('\n');
-				for(int i=0;i<trace.length;i++) {
+				for(StackTraceElement elt: trace) {
 					sb.append("\tat ");
-					sb.append(trace[i].toString());
+					sb.append(elt.toString());
 					sb.append('\n');
 				}
 			}
@@ -1007,13 +1026,17 @@ public class FileLoggerHook extends LoggerHook implements Closeable {
 			else break;
 		}
 
-		logString(sb.toString().getBytes());
+		try {
+			logString(sb.toString().getBytes(ENCODING));
+		} catch (UnsupportedEncodingException e1) {
+			throw new Error(e1);
+		}
 	}
 
 	/** Memory allocation overhead (estimated through experimentation with bsh) */
 	private static final int LINE_OVERHEAD = 60;
 	
-	public void logString(byte[] b) {
+	public void logString(byte[] b) throws UnsupportedEncodingException {
 		synchronized (list) {
 			int sz = list.size();
 			if(!list.offer(b)) {
@@ -1027,7 +1050,7 @@ public class FileLoggerHook extends LoggerHook implements Closeable {
 						+ " entries, "
 						+ listBytes
 						+ " bytes in memory\n";
-				byte[] buf = err.getBytes();
+				byte[] buf = err.getBytes(ENCODING);
 				if(list.offer(buf))
 					listBytes += (buf.length + LINE_OVERHEAD);
 				if(list.offer(b))
@@ -1049,7 +1072,7 @@ public class FileLoggerHook extends LoggerHook implements Closeable {
 						+ " entries, "
 						+ listBytes
 						+ " bytes in memory\n";
-				byte[] buf = err.getBytes();
+				byte[] buf = err.getBytes(ENCODING);
 				if(!list.offer(buf)) {
 					byte[] ss = list.poll();
 					if(ss != null) listBytes -= ss.length + LINE_OVERHEAD;

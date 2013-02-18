@@ -58,8 +58,8 @@ public class BucketChainBucket implements Bucket {
 			freed = true;
 			buckets.clear();
 		}
-		for(int i=0;i<list.length;i++) {
-			list[i].free();
+		for(Bucket l: list) {
+			l.free();
 		}
 	}
 	
@@ -212,8 +212,8 @@ public class BucketChainBucket implements Bucket {
 			list = getBuckets();
 			buckets.clear();
 		}
-		for(int i=0;i<list.length;i++) {
-			list[i].free();
+		for(Bucket l: list) {
+			l.free();
 		}
 		return new OutputStream() {
 
@@ -250,9 +250,12 @@ public class BucketChainBucket implements Bucket {
 					if(baos != null) {
 						OutputStream os = makeBucketOutputStream(bucketNo);
 						bucketNo++;
+						try {
 						os.write(baos.toByteArray());
 						baos.reset();
+						} finally {
 						os.close();
+						}
 					} else {
 						curBucketStream.close();
 						curBucketStream = makeBucketOutputStream(++bucketNo);
@@ -298,9 +301,12 @@ public class BucketChainBucket implements Bucket {
 					if(baos != null) {
 						OutputStream os = makeBucketOutputStream(bucketNo);
 						bucketNo++;
+						try {
 						os.write(baos.toByteArray());
 						baos.reset();
+						} finally {
 						os.close();
+						}
 					} else {
 						curBucketStream.close();
 						curBucketStream = makeBucketOutputStream(++bucketNo);
@@ -329,9 +335,12 @@ public class BucketChainBucket implements Bucket {
 				if(baos != null && baos.size() > 0) {
 					OutputStream os = makeBucketOutputStream(bucketNo);
 					bucketNo++;
+					try {
 					os.write(baos.toByteArray());
 					baos.reset();
+					} finally {
 					os.close();
+					}
 				} else if(curBucketStream != null) {
 					curBucketStream.close();
 				}

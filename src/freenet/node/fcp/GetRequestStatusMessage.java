@@ -9,7 +9,6 @@ import freenet.client.async.ClientContext;
 import freenet.client.async.DBJob;
 import freenet.client.async.DatabaseDisabledException;
 import freenet.node.Node;
-import freenet.support.Fields;
 import freenet.support.SimpleFieldSet;
 import freenet.support.io.NativeThread;
 
@@ -22,8 +21,8 @@ public class GetRequestStatusMessage extends FCPMessage {
 	
 	public GetRequestStatusMessage(SimpleFieldSet fs) {
 		this.identifier = fs.get("Identifier");
-		this.global = Fields.stringToBool(fs.get("Global"), false);
-		this.onlyData = Fields.stringToBool(fs.get("OnlyData"), false);
+		this.global = fs.getBoolean("Global", false);
+		this.onlyData = fs.getBoolean("OnlyData", false);
 	}
 
 	@Override

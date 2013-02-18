@@ -10,7 +10,6 @@ import freenet.client.async.DBJob;
 import freenet.client.async.DatabaseDisabledException;
 import freenet.node.Node;
 import freenet.node.RequestStarter;
-import freenet.support.Fields;
 import freenet.support.Logger;
 import freenet.support.SimpleFieldSet;
 import freenet.support.io.NativeThread;
@@ -38,7 +37,7 @@ public class ModifyPersistentRequest extends FCPMessage {
 	final String clientToken;
 	
 	ModifyPersistentRequest(SimpleFieldSet fs) throws MessageInvalidException {
-		this.global = Fields.stringToBool(fs.get("Global"), false);
+		this.global = fs.getBoolean("Global", false);
 		this.identifier = fs.get("Identifier");
 		this.clientToken = fs.get("ClientToken");
 		if(identifier == null)

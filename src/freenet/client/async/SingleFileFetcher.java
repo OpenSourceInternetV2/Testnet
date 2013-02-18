@@ -116,6 +116,7 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 			// Always copy if persistent
 			this.metaStrings = new ArrayList<String>(metaStrings);
 		this.addedMetaStrings = addedMetaStrings;
+		if(logMINOR) Logger.minor(this, "Metadata: "+metadata);
 		this.clientMetadata = (metadata != null ? metadata.clone() : new ClientMetadata());
 		if(hasInitialMetadata)
 			thisKey = FreenetURI.EMPTY_CHK_URI.clone();
@@ -280,7 +281,7 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 	}
 	
 	@Override
-	protected void onSuccess(FetchResult result, ObjectContainer container, ClientContext context) {
+	protected void onSuccess(final FetchResult result, ObjectContainer container, final ClientContext context) {
 		if(persistent) {
 			container.activate(decompressors, 1);
 			container.activate(parent, 1);
@@ -327,7 +328,19 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 			result.asBucket().free();
 			if(persistent) result.asBucket().removeFrom(container);
 		} else {
-			rcb.onSuccess(new SingleFileStreamGenerator(result.asBucket(), persistent), result.getMetadata(), decompressors, this, container, context);
+			if(persistent()) {
+				rcb.onSuccess(new SingleFileStreamGenerator(result.asBucket(), persistent), result.getMetadata(), decompressors, this, container, context);
+			} else {
+				// Break locks, don't run filtering on FEC thread etc etc.
+				context.mainExecutor.execute(new Runnable() {
+					
+					@Override
+					public void run() {
+						rcb.onSuccess(new SingleFileStreamGenerator(result.asBucket(), persistent), result.getMetadata(), decompressors, SingleFileFetcher.this, null, context);
+					}
+				
+				});
+			}
 		}
 	}
 
@@ -481,9 +494,12 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 				// Then parse it. Then we may need to fetch something from inside the archive.
 				// It's more efficient to keep the existing ah if we can, and it is vital in
 				// the case of binary blobs.
-				if(ah == null || !ah.getKey().equals(thisKey))
+				if(ah == null || !ah.getKey().equals(thisKey)) {
+					// Do loop detection on the archive that we are about to fetch.
+					actx.doLoopDetection(thisKey, container);
 					ah = context.archiveManager.makeHandler(thisKey, metadata.getArchiveType(), metadata.getCompressionCodec(),
 							(parent instanceof ClientGetter ? ((ClientGetter)parent).collectingBinaryBlob() : false), persistent);
+				}
 				archiveMetadata = metadata;
 				metadata = null; // Copied to archiveMetadata, so do not need to clear it
 				// ah is set. This means we are currently handling an archive.
@@ -658,7 +674,7 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 				clientMetadata.mergeNoOverwrite(metadata.getClientMetadata());
 				if(persistent) container.store(clientMetadata);
 				String mime = clientMetadata.getMIMEType();
-				if(mime != null) rcb.onExpectedMIME(mime, container, context);
+				if(mime != null) rcb.onExpectedMIME(clientMetadata, container, context);
 				if(metaStrings.isEmpty() && isFinal && clientMetadata.getMIMETypeNoParams() != null && ctx.allowedMIMETypes != null &&
 						!ctx.allowedMIMETypes.contains(clientMetadata.getMIMETypeNoParams())) {
 					throw new FetchException(FetchException.WRONG_MIME_TYPE, -1, false, clientMetadata.getMIMEType());
@@ -773,8 +789,10 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 				if(logMINOR) Logger.minor(this, "Is single-file redirect");
 				clientMetadata.mergeNoOverwrite(metadata.getClientMetadata()); // even splitfiles can have mime types!
 				if(persistent) container.store(clientMetadata);
-				String mime = clientMetadata.getMIMEType();
-				if(mime != null) rcb.onExpectedMIME(mime, container, context);
+				if(clientMetadata != null && !clientMetadata.isTrivial()) { 
+					rcb.onExpectedMIME(clientMetadata, container, context);
+					if(logMINOR) Logger.minor(this, "MIME type is "+clientMetadata);
+				}
 
 				String mimeType = clientMetadata.getMIMETypeNoParams();
 				if(mimeType != null && ArchiveManager.ARCHIVE_TYPE.isUsableArchiveType(mimeType) && metaStrings.size() > 0) {
@@ -831,30 +849,13 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 							redirectedCryptoKey))
 						redirectedCryptoKey = null;
 					// not splitfile, synthesize CompatibilityMode event
-					if (metadata.getParsedVersion() == 0)
-						rcb.onSplitfileCompatibilityMode(
-								CompatibilityMode.COMPAT_1250_EXACT,
-								CompatibilityMode.COMPAT_1251,
-								null,
-								!((ClientCHK)redirectedKey).isCompressed(),
-								true, true,
-								container, context);
-					else if (metadata.getParsedVersion() == 1)
-						rcb.onSplitfileCompatibilityMode(
-								CompatibilityMode.COMPAT_1255,
-								CompatibilityMode.COMPAT_1255,
-								redirectedCryptoKey,
-								!((ClientCHK)redirectedKey).isCompressed(),
-								true, true,
-								container, context);
-					else
-						rcb.onSplitfileCompatibilityMode(
-								CompatibilityMode.COMPAT_UNKNOWN,
-								CompatibilityMode.COMPAT_UNKNOWN,
-								redirectedCryptoKey,
-								!((ClientCHK)redirectedKey).isCompressed(),
-								true, true,
-								container, context);
+					rcb.onSplitfileCompatibilityMode(
+							metadata.getMinCompatMode(),
+							metadata.getMaxCompatMode(),
+							redirectedCryptoKey,
+							!((ClientCHK)redirectedKey).isCompressed(),
+							true, true,
+							container, context);
 				}
 				if(metadata.isCompressed()) {
 					COMPRESSOR_TYPE codec = metadata.getCompressionCodec();
@@ -890,8 +891,8 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 					if(logMINOR) Logger.minor(this, "Handling implicit container... (splitfile)");
 					continue;
 				} else {
-					String mime = clientMetadata.getMIMEType();
-					if(mime != null) rcb.onExpectedMIME(mime, container, context);
+					if(clientMetadata != null && !clientMetadata.isTrivial()) 
+						rcb.onExpectedMIME(clientMetadata, container, context);
 				}
 				
 				if(metaStrings.isEmpty() && isFinal && mimeType != null && ctx.allowedMIMETypes != null &&
@@ -1093,10 +1094,10 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 					decompressorManager.waitFinished();
 					worker.waitFinished();
 				} else streamGenerator.writeTo(output, container, context);
-
-				output.close();
-				pipeOut.close();
-				pipeIn.close();
+				// We want to see anything thrown when these are closed.
+				output.close(); output = null;
+				pipeOut.close(); pipeOut = null;
+				pipeIn.close(); pipeIn = null;
 			} catch (OutOfMemoryError e) {
 				OOMHandler.handleOOM(e);
 				System.err.println("Failing above attempted fetch...");
@@ -1236,7 +1237,7 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 		}
 
 		@Override
-		public void onExpectedMIME(String mime, ObjectContainer container, ClientContext context) {
+		public void onExpectedMIME(ClientMetadata metadata, ObjectContainer container, ClientContext context) {
 			// Ignore
 		}
 
@@ -1332,9 +1333,6 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 					worker.waitFinished();
 				} else streamGenerator.writeTo(output, container, context);
 
-				pipeOut.close();
-				pipeIn.close();
-				output.close();
 			} catch (OutOfMemoryError e) {
 				OOMHandler.handleOOM(e);
 				System.err.println("Failing above attempted fetch...");
@@ -1421,7 +1419,7 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 		}
 
 		@Override
-		public void onExpectedMIME(String mime, ObjectContainer container, ClientContext context) {
+		public void onExpectedMIME(ClientMetadata mime, ObjectContainer container, ClientContext context) {
 			// Ignore
 		}
 
@@ -1504,7 +1502,6 @@ public class SingleFileFetcher extends SimpleSingleFileFetcher {
 			// Return the latest known version but at least suggestedEdition.
 			long edition = context.uskManager.lookupKnownGood(usk);
 			if(edition <= usk.suggestedEdition) {
-				// Background fetch - start background fetch first so can pick up updates in the datastore during registration.
 				context.uskManager.startTemporaryBackgroundFetcher(usk, context, ctx, true, realTimeFlag);
 				edition = context.uskManager.lookupKnownGood(usk);
 				if(edition > usk.suggestedEdition) {

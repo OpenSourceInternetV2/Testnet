@@ -137,14 +137,12 @@ public class USKRetriever extends BaseClientGetter implements USKCallback {
 				worker.start();
 				streamGenerator.writeTo(pipeOut, container, context);
 				worker.waitFinished();
-				pipeOut.close();
+				// If this throws, we want the whole request to fail.
+				pipeOut.close(); pipeOut = null;
 			} else {
-				try {
 					streamGenerator.writeTo(output, container, context);
-					output.close();
-				} finally {
-					Closer.close(output);
-				}
+					// If this throws, we want the whole request to fail.
+					output.close(); output = null;
 			}
 		} catch (OutOfMemoryError e) {
 			OOMHandler.handleOOM(e);
@@ -229,7 +227,7 @@ public class USKRetriever extends BaseClientGetter implements USKCallback {
 	}
 
 	@Override
-	public void onExpectedMIME(String mime, ObjectContainer container, ClientContext context) {
+	public void onExpectedMIME(ClientMetadata meta, ObjectContainer container, ClientContext context) {
 		// Ignore
 	}
 

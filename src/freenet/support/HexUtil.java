@@ -17,6 +17,7 @@ import freenet.support.Logger.LogLevel;
  * @author syoung
  */
 public class HexUtil {
+	final
 	private static boolean logDEBUG =Logger.shouldLog(LogLevel.DEBUG,HexUtil.class);
 	private HexUtil() {		
 	}	
@@ -33,9 +34,9 @@ public class HexUtil {
 	 *            The number of bytes to read.
 	 * @return the string of hex chars.
 	 */
-	public static String bytesToHex(byte[] bs, int off, int length) {
-		if (bs.length <= off || bs.length < off+length)
-			throw new IllegalArgumentException();
+	public static final String bytesToHex(byte[] bs, int off, int length) {
+		if (bs.length < off+length)
+			throw new IllegalArgumentException("Total length: " + bs.length + ", offset: " + off + ", length: " + length);
 		StringBuilder sb = new StringBuilder(length * 2);
 		bytesToHexAppend(bs, off, length, sb);
 		return sb.toString();
@@ -46,7 +47,7 @@ public class HexUtil {
 		int off,
 		int length,
 		StringBuilder sb) {
-		if (bs.length <= off || bs.length < off+length)
+		if (bs.length < off+length)
 			throw new IllegalArgumentException();
 		sb.ensureCapacity(sb.length() + length * 2);
 		for (int i = off; i < (off + length); i++) {
@@ -157,8 +158,7 @@ public class HexUtil {
 	 * bitset
 	 */
 	public static int countBytesForBits(int size) {
-		// Brackets matter here! == takes precedence over the rest
-		return (size/8) + ((size % 8) == 0 ? 0:1);
+		return (size + 7)/8;
 	}
 
 
@@ -170,11 +170,11 @@ public class HexUtil {
 	public static void bytesToBits(byte[] b, BitSet ba, int maxSize) {
 		if(logDEBUG) Logger.debug(HexUtil.class, "bytesToBits("+bytesToHex(b)+",ba,"+maxSize);
 		int x = 0;
-		for(int i=0;i<b.length;i++) {
+		for(byte bi: b) {
 			for(int j=0;j<8;j++) {
 				if(x > maxSize) break;
 				int mask = 1 << j;
-				boolean value = (mask & b[i]) != 0;
+				boolean value = (mask & bi) != 0;
 				ba.set(x, value);
 				x++;
 			}

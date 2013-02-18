@@ -15,6 +15,7 @@ import freenet.client.ClientMetadata;
 import freenet.client.HighLevelSimpleClient;
 import freenet.client.InsertBlock;
 import freenet.client.InsertException;
+import freenet.clients.http.PageMaker.RenderParameters;
 import freenet.clients.http.bookmark.BookmarkCategory;
 import freenet.clients.http.bookmark.BookmarkItem;
 import freenet.clients.http.bookmark.BookmarkManager;
@@ -169,9 +170,8 @@ public class WelcomeToadlet extends Toadlet {
             }
 	    int validAlertsRemaining = 0;
             UserAlert[] alerts = core.alerts.getAlerts();
-            for (int i = 0; i < alerts.length; i++) {
-                if (request.getIntPart("disable", -1) == alerts[i].hashCode()) {
-                    UserAlert alert = alerts[i];
+            for (UserAlert alert: alerts) {
+                if (request.getIntPart("disable", -1) == alert.hashCode()) {
                     // Won't be dismissed if it's not allowed anyway
                     if (alert.userCanDismiss() && alert.shouldUnregisterOnDismiss()) {
                         alert.onDismiss();
@@ -181,8 +181,9 @@ public class WelcomeToadlet extends Toadlet {
                         Logger.normal(this, "Disabling the userAlert " + alert.hashCode());
                         alert.isValid(false);
                     }
-                } else if(alerts[i].isValid())
-			validAlertsRemaining++;
+                } else if(alert.isValid()) {
+					validAlertsRemaining++;
+				}
             }
             writePermanentRedirect(ctx, l10n("disabledAlert"), (validAlertsRemaining > 0 ? "/alerts/" : "/"));
             return;
@@ -327,7 +328,7 @@ public class WelcomeToadlet extends Toadlet {
                     return;
                 }
                 // Tell the user that the node is shutting down
-                PageNode page = ctx.getPageMaker().getPageNode("Node Shutdown", false, ctx);
+                PageNode page = ctx.getPageMaker().getPageNode("Node Shutdown", ctx, new RenderParameters().renderNavigationLinks(false));
                 HTMLNode pageNode = page.outer;
                 HTMLNode contentNode = page.content;
                 ctx.getPageMaker().getInfobox("infobox-information", l10n("shutdownDone"), contentNode, "shutdown-progressing", true).
@@ -439,7 +440,12 @@ public class WelcomeToadlet extends Toadlet {
         
         
         HTMLNode bookmarksList = bookmarkBoxContent.addChild("ul", "id", "bookmarks");
-        addCategoryToList(BookmarkManager.MAIN_CATEGORY, bookmarksList, (!container.enableActivelinks()) || (useragent != null && useragent.contains("khtml") && !useragent.contains("chrome")), ctx);
+		if (ctx.isAllowedFullAccess() || !ctx.getContainer().publicGatewayMode()) {
+			addCategoryToList(BookmarkManager.MAIN_CATEGORY, bookmarksList, (!container.enableActivelinks()) || (useragent != null && useragent.contains("khtml") && !useragent.contains("chrome")), ctx);
+		}
+		else {
+			addCategoryToList(BookmarkManager.DEFAULT_CATEGORY, bookmarksList, (!container.enableActivelinks()) || (useragent != null && useragent.contains("khtml") && !useragent.contains("chrome")), ctx);
+		}
 
 		// Search Box
         // FIXME search box is BELOW bookmarks for now, until we get search fixed properly.
@@ -478,15 +484,9 @@ public class WelcomeToadlet extends Toadlet {
                 NodeL10n.getBase().getString("WelcomeToadlet.version", new String[]{"fullVersion", "build", "rev"},
                 new String[]{Version.publicVersion(), Integer.toString(Version.buildNumber()), Version.cvsRevision()}));
         versionContent.addChild("br");
-        if (NodeStarter.extBuildNumber < NodeStarter.RECOMMENDED_EXT_BUILD_NUMBER) {
-            versionContent.addChild("span", "class", "freenet-ext-version",
-                    NodeL10n.getBase().getString("WelcomeToadlet.extVersionWithRecommended", new String[]{"build", "recbuild", "rev"},
-                    new String[]{Integer.toString(NodeStarter.extBuildNumber), Integer.toString(NodeStarter.RECOMMENDED_EXT_BUILD_NUMBER), NodeStarter.extRevisionNumber}));
-        } else {
-            versionContent.addChild("span", "class", "freenet-ext-version",
-                    NodeL10n.getBase().getString("WelcomeToadlet.extVersion", new String[]{"build", "rev"},
-                    new String[]{Integer.toString(NodeStarter.extBuildNumber), NodeStarter.extRevisionNumber}));
-        }
+        versionContent.addChild("span", "class", "freenet-ext-version",
+        		NodeL10n.getBase().getString("WelcomeToadlet.extVersion", new String[]{"build", "rev"},
+        				new String[]{Integer.toString(NodeStarter.extBuildNumber), NodeStarter.extRevisionNumber}));
         versionContent.addChild("br");
         if (ctx.isAllowedFullAccess()) {
         	HTMLNode shutdownForm = ctx.addFormChild(versionContent, ".", "shutdownForm");
@@ -519,7 +519,7 @@ public class WelcomeToadlet extends Toadlet {
     
     static HTMLNode sendRestartingPageInner(ToadletContext ctx) {
         // Tell the user that the node is restarting
-        PageNode page = ctx.getPageMaker().getPageNode("Node Restart", false, ctx);
+        PageNode page = ctx.getPageMaker().getPageNode("Node Restart", ctx, new RenderParameters().renderNavigationLinks(false));
         HTMLNode pageNode = page.outer;
         HTMLNode headNode = page.headNode;
         headNode.addChild("meta", new String[]{"http-equiv", "content"}, new String[]{"refresh", "20; url="});

@@ -261,7 +261,7 @@ public class TestnetStatusUploader {
 				SimpleFieldSet peerFS = new SimpleFieldSet(true);
 				peerFS.put("noderef", p.exportFieldSet());
 				peerFS.put("volatile", p.exportVolatileFieldSet());
-				peerFS.put("metadata", p.exportMetadataFieldSet());
+				peerFS.put("metadata", p.exportMetadataFieldSet(System.currentTimeMillis()));
 				peerFS.put("status", p.getPeerNodeStatus());
 				fs.put("peer" + x, peerFS);
 				x++;

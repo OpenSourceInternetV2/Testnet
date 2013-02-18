@@ -15,6 +15,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
+import java.io.UnsupportedEncodingException;
 import java.lang.reflect.Method;
 import java.nio.CharBuffer;
 import java.nio.charset.Charset;
@@ -32,12 +33,21 @@ final public class FileUtil {
 	private static final int BUFFER_SIZE = 32*1024;
 
 	public static enum OperatingSystem {
-		All,
-		MacOS,
-		Linux,
-		FreeBSD,
-		GenericUnix,
-		Windows
+		Unknown(false, false, false), // Special-cased in filename sanitising code.
+		MacOS(false, true, true), // OS/X in that it can run scripts.
+		Linux(false, false, true),
+		FreeBSD(false, false, true),
+		GenericUnix(false, false, true),
+		Windows(true, false, false);
+		
+		public final boolean isWindows;
+		public final boolean isMac;
+		public final boolean isUnix;
+		OperatingSystem(boolean win, boolean mac, boolean unix) {
+			this.isWindows = win;
+			this.isMac = mac;
+			this.isUnix = unix;
+		};
 	};
 
 	public static final OperatingSystem detectedOS;
@@ -65,7 +75,7 @@ final public class FileUtil {
 	}
 
 	/**
-	 * Detects the operating system in which the JVM is running. Returns OperatingSystem.All if the OS is unknown or an error occured.
+	 * Detects the operating system in which the JVM is running. Returns OperatingSystem.Unknown if the OS is unknown or an error occured.
 	 * Therefore this function should never throw.
 	 */
 	private static OperatingSystem detectOperatingSystem() { // TODO: Move to the proper class
@@ -100,7 +110,7 @@ final public class FileUtil {
 			Logger.error(FileUtil.class, "Operating system detection failed", t);
 		}
 
-		return OperatingSystem.All;
+		return OperatingSystem.Unknown;
 	}
 
 	/**
@@ -136,7 +146,13 @@ final public class FileUtil {
 		long blockUsage = roundup_2n(flen, 4096);
 		// Assume 512 byte filename entries, with 100 bytes overhead, for filename overhead (NTFS)
 		String filename = file.getName();
-		int nameLength = filename.getBytes().length + 100;
+		int nameLength;
+		try {
+			nameLength = Math.max(filename.getBytes("UTF-16").length, filename.getBytes("UTF-8").length) + 100;
+		} catch (UnsupportedEncodingException e) {
+			// Impossible.
+			throw new RuntimeException("UTF-16 or UTF-8 charset not supported?!");
+		} 
 		long filenameUsage = roundup_2n(nameLength, 512);
 		// Assume 50 bytes per block tree overhead with 1kB blocks (reiser3 worst case)
 		long extra = (roundup_2n(flen, 1024) / 1024) * 50;
@@ -338,7 +354,7 @@ final public class FileUtil {
 
     /**
      * Sanitizes the given filename to be valid on the given operating system.
-     * If OperatingSystem.All is specified this function will generate a filename which fullfils the restrictions of all known OS, currently
+     * If OperatingSystem.Unknown is specified this function will generate a filename which fullfils the restrictions of all known OS, currently
      * this is MacOS, Unix and Windows.
      */
 	public static String sanitizeFileName(final String fileName, OperatingSystem targetOS, String extraChars) {
@@ -348,7 +364,7 @@ final public class FileUtil {
 		final StringBuilder sb = new StringBuilder(fileName.length() + 1);
 
 		switch(targetOS) {
-			case All: break;
+			case Unknown: break;
 			case MacOS: break;
 			case Linux: break;
 			case FreeBSD: break;
@@ -356,7 +372,7 @@ final public class FileUtil {
 			case Windows: break;
 			default:
 				Logger.error(FileUtil.class, "Unsupported operating system: " + targetOS);
-				targetOS = OperatingSystem.All;
+				targetOS = OperatingSystem.Unknown;
 				break;
 		}
 		
@@ -385,21 +401,21 @@ final public class FileUtil {
 			}
 
 
-			if(targetOS == OperatingSystem.All || targetOS == OperatingSystem.Windows) {
+			if(targetOS == OperatingSystem.Unknown || targetOS.isWindows) {
 				if(StringValidityChecker.isWindowsReservedPrintableFilenameCharacter(c)) {
 					sb.append(def);
 					continue;
 				}
 			}
 
-			if(targetOS == OperatingSystem.All || targetOS == OperatingSystem.MacOS) {
+			if(targetOS == OperatingSystem.Unknown || targetOS.isMac) {
 				if(StringValidityChecker.isMacOSReservedPrintableFilenameCharacter(c)) {
 					sb.append(def);
 					continue;
 				}
 			}
 			
-			if(targetOS == OperatingSystem.All || targetOS == OperatingSystem.GenericUnix || targetOS == OperatingSystem.Linux || targetOS == OperatingSystem.FreeBSD) {
+			if(targetOS == OperatingSystem.Unknown || targetOS.isUnix) {
 				if(StringValidityChecker.isUnixReservedPrintableFilenameCharacter(c)) {
 					sb.append(def);
 					continue;
@@ -411,7 +427,7 @@ final public class FileUtil {
 		}
 
 		// In windows, the last character of a filename may not be space or dot. We cut them off
-		if(targetOS == OperatingSystem.All || targetOS == OperatingSystem.Windows) {
+		if(targetOS == OperatingSystem.Unknown || targetOS.isWindows) {
 			int lastCharIndex = sb.length() - 1;
 			while(lastCharIndex >= 0) {
 				char lastChar = sb.charAt(lastCharIndex);
@@ -423,7 +439,7 @@ final public class FileUtil {
 		}
 
 		// Now the filename might be one of the reserved filenames in Windows (CON etc.) and we must replace it if it is...
-		if(targetOS == OperatingSystem.All || targetOS == OperatingSystem.Windows) {
+		if(targetOS == OperatingSystem.Unknown || targetOS.isWindows) {
 			if(StringValidityChecker.isWindowsReservedFilename(sb.toString()))
 				sb.insert(0, '_');
 		}
@@ -524,9 +540,8 @@ final public class FileUtil {
 				return false;
 			}
 		} else {
-			File[] subfiles = wd.listFiles();
-			for(int i=0;i<subfiles.length;i++) {
-				if(!removeAll(subfiles[i])) return false;
+			for(File subfile: wd.listFiles()) {
+				if(!removeAll(subfile)) return false;
 			}
 			if(!wd.delete()) {
 				Logger.error(FileUtil.class, "Could not delete directory: "+wd);
@@ -546,9 +561,8 @@ final public class FileUtil {
 				return false;
 			}
 		} else {
-			File[] subfiles = wd.listFiles();
-			for(int i=0;i<subfiles.length;i++) {
-				if(!removeAll(subfiles[i])) return false;
+			for(File subfile: wd.listFiles()) {
+				if(!removeAll(subfile)) return false;
 			}
 			if(!wd.delete()) {
 				Logger.error(FileUtil.class, "Could not delete directory: "+wd);
@@ -556,8 +570,12 @@ final public class FileUtil {
 		}
 		return true;
 	}
-
+	
 	public static void secureDelete(File file, Random random) throws IOException {
+		secureDelete(file, random, false);
+	}
+
+	public static void secureDelete(File file, Random random, boolean quick) throws IOException {
 		// FIXME somebody who understands these things should have a look at this...
 		if(!file.exists()) return;
 		long size = file.length();
@@ -577,38 +595,40 @@ final public class FileUtil {
 					count += written;
 				}
 				raf.getFD().sync();
-				// Then ffffff it out
-				for(int i=0;i<buf.length;i++)
-					buf[i] = (byte)0xFF;
-				raf.seek(0);
-				count = 0;
-				while(count < size) {
-					int written = (int) Math.min(buf.length, size - count);
-					raf.write(buf, 0, written);
-					count += written;
+				if(!quick) {
+					// Then ffffff it out
+					for(int i=0;i<buf.length;i++)
+						buf[i] = (byte)0xFF;
+					raf.seek(0);
+					count = 0;
+					while(count < size) {
+						int written = (int) Math.min(buf.length, size - count);
+						raf.write(buf, 0, written);
+						count += written;
+					}
+					raf.getFD().sync();
+					// Then random data
+					random.nextBytes(buf);
+					raf.seek(0);
+					count = 0;
+					while(count < size) {
+						int written = (int) Math.min(buf.length, size - count);
+						raf.write(buf, 0, written);
+						count += written;
+					}
+					raf.getFD().sync();
+					raf.seek(0);
+					// Then 0's again
+					for(int i=0;i<buf.length;i++)
+						buf[i] = 0;
+					count = 0;
+					while(count < size) {
+						int written = (int) Math.min(buf.length, size - count);
+						raf.write(buf, 0, written);
+						count += written;
+					}
+					raf.getFD().sync();
 				}
-				raf.getFD().sync();
-				// Then random data
-				random.nextBytes(buf);
-				raf.seek(0);
-				count = 0;
-				while(count < size) {
-					int written = (int) Math.min(buf.length, size - count);
-					raf.write(buf, 0, written);
-					count += written;
-				}
-				raf.getFD().sync();
-				raf.seek(0);
-				// Then 0's again
-				for(int i=0;i<buf.length;i++)
-					buf[i] = 0;
-				count = 0;
-				while(count < size) {
-					int written = (int) Math.min(buf.length, size - count);
-					raf.write(buf, 0, written);
-					count += written;
-				}
-				raf.getFD().sync();
 				raf.close();
 				raf = null;
 			} finally {
@@ -702,6 +722,14 @@ final public class FileUtil {
 		a = getCanonicalFile(a);
 		b = getCanonicalFile(b);
 		return a.equals(b);
+	}
+
+	/** Create a temp file in a specific directory. Null = ".". 
+	 * @throws IOException */
+	public static File createTempFile(String prefix, String suffix,
+			File directory) throws IOException {
+		if(directory == null) directory = new File(".");
+		return File.createTempFile(prefix, suffix, directory);
 	}
 
 }

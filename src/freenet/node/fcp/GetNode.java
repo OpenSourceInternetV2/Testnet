@@ -6,7 +6,6 @@ package freenet.node.fcp;
 import com.db4o.ObjectContainer;
 
 import freenet.node.Node;
-import freenet.support.Fields;
 import freenet.support.SimpleFieldSet;
 
 public class GetNode extends FCPMessage {
@@ -18,9 +17,9 @@ public class GetNode extends FCPMessage {
 	final String identifier;
 	
 	public GetNode(SimpleFieldSet fs) {
-		giveOpennetRef = Fields.stringToBool(fs.get("GiveOpennetRef"), false);
-		withPrivate = Fields.stringToBool(fs.get("WithPrivate"), false);
-		withVolatile = Fields.stringToBool(fs.get("WithVolatile"), false);
+		giveOpennetRef = fs.getBoolean("GiveOpennetRef", false);
+		withPrivate = fs.getBoolean("WithPrivate", false);
+		withVolatile = fs.getBoolean("WithVolatile", false);
 		identifier = fs.get("Identifier");
 		fs.removeValue("Identifier");
 	}

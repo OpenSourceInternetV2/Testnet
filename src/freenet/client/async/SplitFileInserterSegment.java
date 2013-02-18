@@ -173,8 +173,7 @@ public class SplitFileInserterSegment extends SendableInsert implements FECCallb
 		this.splitfileAlgo = splitfileAlgo;
 		if(crossCheckBlocks != 0) {
 			// Cross check blocks count as data blocks for most purposes.
-			this.dataBlocks = new Bucket[origDataBlocks.length + crossCheckBlocks];
-			System.arraycopy(origDataBlocks, 0, dataBlocks, 0, origDataBlocks.length);
+			this.dataBlocks = Arrays.copyOf(origDataBlocks, origDataBlocks.length + crossCheckBlocks);
 			origDataBlocks = dataBlocks;
 		} else {
 			this.dataBlocks = origDataBlocks;
@@ -387,6 +386,8 @@ public class SplitFileInserterSegment extends SendableInsert implements FECCallb
 
 	private byte getCryptoAlgorithm(ObjectContainer container) {
 		if(cryptoAlgorithm == 0) {
+			// Only happens with really old splitfiles.
+			// FIXME back compatibility, remove.
 			cryptoAlgorithm = Key.ALGO_AES_PCFB_256_SHA256;
 			if(persistent) container.store(this);
 		}
@@ -1339,8 +1340,7 @@ public class SplitFileInserterSegment extends SendableInsert implements FECCallb
 		Arrays.sort(blockNumbers);
 		int prevBlockNumber = -1;
 		byte cryptoAlgorithm = getCryptoAlgorithm(container);
-		for(int i=0;i<blockNumbers.length;i++) {
-			int blockNumber = blockNumbers[i];
+		for(int blockNumber: blockNumbers) {
 			if(blockNumber == prevBlockNumber) {
 				Logger.error(this, "Duplicate block number in makeBlocks() in "+this+": two copies of "+blockNumber);
 				continue;

@@ -41,13 +41,12 @@ import freenet.node.useralerts.DownloadFeedUserAlert;
 import freenet.node.useralerts.N2NTMUserAlert;
 import freenet.node.useralerts.UserAlert;
 import freenet.support.Base64;
-import freenet.support.Fields;
 import freenet.support.HTMLNode;
 import freenet.support.IllegalBase64Exception;
 import freenet.support.Logger;
+import freenet.support.Logger.LogLevel;
 import freenet.support.SimpleFieldSet;
 import freenet.support.SizeUtil;
-import freenet.support.Logger.LogLevel;
 import freenet.support.api.HTTPUploadedFile;
 import freenet.support.io.BucketTools;
 import freenet.support.io.ByteArrayRandomAccessThing;
@@ -157,12 +156,12 @@ public class DarknetPeerNode extends PeerNode {
 		if(fromLocal) {
 			SimpleFieldSet metadata = fs.subset("metadata");
 
-			isDisabled = Fields.stringToBool(metadata.get("isDisabled"), false);
-			isListenOnly = Fields.stringToBool(metadata.get("isListenOnly"), false);
-			isBurstOnly = Fields.stringToBool(metadata.get("isBurstOnly"), false);
-			disableRouting = disableRoutingHasBeenSetLocally = Fields.stringToBool(metadata.get("disableRoutingHasBeenSetLocally"), false);
-			ignoreSourcePort = Fields.stringToBool(metadata.get("ignoreSourcePort"), false);
-			allowLocalAddresses = Fields.stringToBool(metadata.get("allowLocalAddresses"), false);
+			isDisabled = metadata.getBoolean("isDisabled", false);
+			isListenOnly = metadata.getBoolean("isListenOnly", false);
+			isBurstOnly = metadata.getBoolean("isBurstOnly", false);
+			disableRouting = disableRoutingHasBeenSetLocally = metadata.getBoolean("disableRoutingHasBeenSetLocally", false);
+			ignoreSourcePort = metadata.getBoolean("ignoreSourcePort", false);
+			allowLocalAddresses = metadata.getBoolean("allowLocalAddresses", false);
 			String s = metadata.get("trustLevel");
 			if(s != null) {
 				trustLevel = FRIEND_TRUST.valueOf(s);
@@ -259,8 +258,8 @@ public class DarknetPeerNode extends PeerNode {
 	}
 
 	@Override
-	public synchronized SimpleFieldSet exportMetadataFieldSet() {
-		SimpleFieldSet fs = super.exportMetadataFieldSet();
+	public synchronized SimpleFieldSet exportMetadataFieldSet(long now) {
+		SimpleFieldSet fs = super.exportMetadataFieldSet(now);
 		if(isDisabled)
 			fs.putSingle("isDisabled", "true");
 		if(isListenOnly)
@@ -565,7 +564,7 @@ public class DarknetPeerNode extends PeerNode {
 				return false;
 			}
 			if(peerNoteType == Node.PEER_NOTE_TYPE_PRIVATE_DARKNET_COMMENT) {
-				synchronized(privateDarknetComment) {
+				synchronized(this) {
 				  	try {
 						privateDarknetComment = Base64.decodeUTF8(fs.get("privateDarknetComment"));
 					} catch (IllegalBase64Exception e) {
@@ -806,18 +805,14 @@ public class DarknetPeerNode extends PeerNode {
 
 	public synchronized void setPrivateDarknetCommentNote(String comment) {
 		int localFileNumber;
-		synchronized(privateDarknetComment) {
-			privateDarknetComment = comment;
-			localFileNumber = privateDarknetCommentFileNumber;
-		}
+		privateDarknetComment = comment;
+		localFileNumber = privateDarknetCommentFileNumber;
 		SimpleFieldSet fs = new SimpleFieldSet(true);
 		fs.put("peerNoteType", Node.PEER_NOTE_TYPE_PRIVATE_DARKNET_COMMENT);
 		fs.putSingle("privateDarknetComment", Base64.encodeUTF8(comment));
 		if(localFileNumber == -1) {
 			localFileNumber = writeNewExtraPeerDataFile(fs, Node.EXTRA_PEER_DATA_TYPE_PEER_NOTE);
-			synchronized(privateDarknetComment) {
-				privateDarknetCommentFileNumber = localFileNumber;
-			}
+			privateDarknetCommentFileNumber = localFileNumber;
 		} else {
 			rewriteExtraPeerDataFile(fs, Node.EXTRA_PEER_DATA_TYPE_PEER_NOTE, localFileNumber);
 		}
@@ -1579,8 +1574,9 @@ public class DarknetPeerNode extends PeerNode {
 		long sentTime = fs.getLong("sentTime", -1);
 		long receivedTime = fs.getLong("receivedTime", -1);
 		try {
-			if(fs.get("Description") != null)
-				description = Base64.decodeUTF8(fs.get("Description"));
+			String s = fs.get("Description");
+			if(s != null)
+				description = Base64.decodeUTF8(s);
 			uri = new FreenetURI(fs.get("URI"));
 		} catch (MalformedURLException e) {
 			Logger.error(this, "Malformed URI in N2NTM Bookmark Feed message");
@@ -1600,8 +1596,9 @@ public class DarknetPeerNode extends PeerNode {
 		long sentTime = fs.getLong("sentTime", -1);
 		long receivedTime = fs.getLong("receivedTime", -1);
 		try {
-			if(fs.get("Description") != null)
-				description = Base64.decodeUTF8(fs.get("Description"));
+			String s = fs.get("Description");
+			if(s != null)
+				description = Base64.decodeUTF8(s);
 			uri = new FreenetURI(fs.get("URI"));
 		} catch (MalformedURLException e) {
 			Logger.error(this, "Malformed URI in N2NTM File Feed message");

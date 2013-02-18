@@ -63,7 +63,7 @@ public class PluginDownLoaderOfficialHTTPS extends PluginDownLoaderURL {
 				bos.write(buffer, 0, read);
 			}
 			
-			return new String(bos.toByteArray()).split(" ")[0];
+			return new String(bos.toByteArray(), "ISO-8859-1").split(" ")[0];
 	
 		} catch (MalformedURLException e) {
 			throw new PluginNotFoundException("impossible: "+e,e);
@@ -130,9 +130,10 @@ public class PluginDownLoaderOfficialHTTPS extends PluginDownLoaderURL {
 				bucket = new FileBucket(certFile, false, false, false, false, false);
 				os = bucket.getOutputStream();
 				writeCerts(os);
+				// If this fails, we need the whole fetch to fail.
+				os.close(); os = null; 
 			} finally {
-				if(os != null)
-					Closer.close(os);
+				Closer.close(os);
 			}
 			return bucket.getInputStream();
 		} catch (IOException e) {

@@ -13,9 +13,11 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.StringTokenizer;
 import java.util.regex.Pattern;
+import java.util.regex.Matcher;
 
 import com.db4o.ObjectContainer;
 
@@ -78,7 +80,7 @@ import freenet.support.io.FileUtil;
  * in through name/value pairs. Do we want this?
  */
 // WARNING: THIS CLASS IS STORED IN DB4O -- THINK TWICE BEFORE ADD/REMOVE/RENAME FIELDS
-public class FreenetURI implements Cloneable {
+public class FreenetURI implements Cloneable, Comparable<FreenetURI> {
 	private static volatile boolean logMINOR;
 	private static volatile boolean logDEBUG;
 	static {
@@ -137,6 +139,7 @@ public class FreenetURI implements Cloneable {
 
 	@Override
 	public boolean equals(Object o) {
+		if(o == this) return true;
 		if(!(o instanceof FreenetURI))
 			return false;
 		else {
@@ -194,22 +197,18 @@ public class FreenetURI implements Cloneable {
 		keyType = uri.keyType;
 		docName = uri.docName;
 		if(uri.metaStr != null) {
-			metaStr = new String[uri.metaStr.length];
-			System.arraycopy(uri.metaStr, 0, metaStr, 0, metaStr.length);
+			metaStr = uri.metaStr.clone();
 		} else metaStr = null;
 		if(uri.routingKey != null) {
-			routingKey = new byte[uri.routingKey.length];
-			System.arraycopy(uri.routingKey, 0, routingKey, 0, routingKey.length);
+			routingKey = uri.routingKey.clone();
 		} else
 			routingKey = null;
 		if(uri.cryptoKey != null) {
-			cryptoKey = new byte[uri.cryptoKey.length];
-			System.arraycopy(uri.cryptoKey, 0, cryptoKey, 0, cryptoKey.length);
+			cryptoKey = uri.cryptoKey.clone();
 		} else
 			cryptoKey = null;
 		if(uri.extra != null) {
-			extra = new byte[uri.extra.length];
-			System.arraycopy(uri.extra, 0, extra, 0, extra.length);
+			extra = uri.extra.clone();
 		} else
 			extra = null;
 		this.suggestedEdition = uri.suggestedEdition;
@@ -610,8 +609,7 @@ public class FreenetURI implements Cloneable {
 		if (metaStr != null) {
 			final int metaStrLength = metaStr.length;
 			if (metaStrLength > 1) {
-				newMetaStr = new String[metaStrLength - 1];
-				System.arraycopy(metaStr, 1, newMetaStr, 0, newMetaStr.length);
+				newMetaStr = Arrays.copyOf(metaStr, metaStr.length-1);
 			}
 		}
 		return setMetaString(newMetaStr);
@@ -624,11 +622,8 @@ public class FreenetURI implements Cloneable {
 	 */
 	public FreenetURI dropLastMetaStrings(int i) {
 		String[] newMetaStr = null;
-		if((metaStr != null) && (metaStr.length > 1)) {
-			if(i > metaStr.length)
-				i = metaStr.length;
-			newMetaStr = new String[metaStr.length - i];
-			System.arraycopy(metaStr, 0, newMetaStr, 0, newMetaStr.length);
+		if((metaStr != null) && (metaStr.length > i)) {
+			newMetaStr = Arrays.copyOf(metaStr, metaStr.length - i);
 		}
 		return setMetaString(newMetaStr);
 	}
@@ -644,8 +639,7 @@ public class FreenetURI implements Cloneable {
 		if(metaStr == null)
 			newMetaStr = new String[]{name};
 		else {
-			newMetaStr = new String[metaStr.length + 1];
-			System.arraycopy(metaStr, 0, newMetaStr, 0, metaStr.length);
+			newMetaStr = Arrays.copyOf(metaStr, metaStr.length + 1);
 			newMetaStr[metaStr.length] = name.intern();
 		}
 		return setMetaString(newMetaStr);
@@ -664,9 +658,7 @@ public class FreenetURI implements Cloneable {
 		if(metaStr == null)
 			return setMetaString(strs);
 		else {
-			newMetaStr = new String[metaStr.length + strs.length];
-			if(metaStr != null)
-				System.arraycopy(metaStr, 0, newMetaStr, 0, metaStr.length);
+			newMetaStr = Arrays.copyOf(metaStr, metaStr.length + strs.length);
 			System.arraycopy(strs, 0, newMetaStr, metaStr.length, strs.length);
 			return setMetaString(newMetaStr);
 		}
@@ -967,12 +959,14 @@ public class FreenetURI implements Cloneable {
 		if(keyType != null && (keyType.equals("KSK") || keyType.equals("SSK") || keyType.equals("USK"))) {
 			if(logMINOR)
 				Logger.minor(this, "Adding docName: " + docName);
-			if(docName == null)
-				// Really this shouldn't be possible...
-				throw new NullPointerException();
-			names.add(docName);
-			if(keyType.equals("USK"))
-				names.add(Long.toString(suggestedEdition));
+			if(docName != null) {
+				names.add(docName);
+				if(keyType.equals("USK"))
+					names.add(Long.toString(suggestedEdition));
+			} else if(!keyType.equals("SSK")) {
+				// "SSK@" is legal for an upload.
+				throw new IllegalStateException("No docName for key of type "+keyType);
+			}
 		}
 		if(metaStr != null)
 			for(int i = 0; i < metaStr.length; i++) {
@@ -1007,6 +1001,7 @@ public class FreenetURI implements Cloneable {
 					Logger.minor(this, "Returning base64 encoded routing key");
 				return Base64.encode(routingKey);
 			}
+			// FIXME return null in this case, localise in a wrapper.
 			return "unknown";
 		}
 		return out.toString();
@@ -1132,18 +1127,24 @@ public class FreenetURI implements Cloneable {
 		return new FreenetURI("SSK", docName+"-"+suggestedEdition, metaStr, routingKey, cryptoKey, extra, 0);
 	}
 
+	private static final Pattern docNameWithEditionPattern;
+	static {
+		docNameWithEditionPattern = Pattern.compile(".*\\-([0-9]+)");
+	}
+
 	/** Could this SSK be the result of sskForUSK()? */
 	public boolean isSSKForUSK() {
-		return keyType.equalsIgnoreCase("SSK") && docName.matches(".*\\-[0-9]+");
+		return keyType.equalsIgnoreCase("SSK") && docNameWithEditionPattern.matcher(docName).matches();
 	}
 
 	/** Convert an SSK into a USK, if possible. */
 	public FreenetURI uskForSSK() {
 		if(!keyType.equalsIgnoreCase("SSK")) throw new IllegalStateException();
-		if (!docName.matches(".*\\-[0-9]+"))
+		Matcher matcher = docNameWithEditionPattern.matcher(docName);
+		if (!matcher.matches())
 			throw new IllegalStateException();
 
-		int offset = docName.lastIndexOf('-');
+		int offset = matcher.start(1) - 1;
 		String siteName = docName.substring(0, offset);
 		long edition = Long.valueOf(docName.substring(offset + 1, docName.length()));
 
@@ -1158,13 +1159,75 @@ public class FreenetURI implements Cloneable {
 		if(keyType.equalsIgnoreCase("USK"))
 			return suggestedEdition;
 		else if(keyType.equalsIgnoreCase("SSK")) {
-			if (!docName.matches(".*\\-[0-9]+")) /* Taken from uskForSSK, also modify there if necessary; TODO just use isSSKForUSK() here?! */
+			Matcher matcher = docNameWithEditionPattern.matcher(docName);
+			if (!matcher.matches()) /* Taken from uskForSSK, also modify there if necessary; TODO just use isSSKForUSK() here?! */
 				throw new IllegalStateException();
 
-			return Long.valueOf(docName.substring(docName.lastIndexOf('-') + 1, docName.length()));
+			return Long.valueOf(docName.substring(matcher.start(1), docName.length()));
 		} else
 			throw new IllegalStateException();
 	}
+
+	@Override
+	/** This looks expensive, but 99% of the time it will quit out pretty 
+	 * early on: Either a different key type or a different routing key. The 
+	 * worst case cost is relatively bad though. Unfortunately we can't use
+	 * a HashMap if an attacker might be able to influence the keys and 
+	 * create a hash collision DoS, so we *do* need this. */
+	public int compareTo(FreenetURI o) {
+		if(this == o) return 0;
+		int cmp = keyType.compareTo(o.keyType);
+		if(cmp != 0) return cmp;
+		if(routingKey != null) {
+			// Same type will have same routingKey != null
+			cmp = Fields.compareBytes(routingKey, o.routingKey);
+			if(cmp != 0) return cmp;
+		}
+		if(cryptoKey != null) {
+			// Same type will have same cryptoKey != null
+			cmp = Fields.compareBytes(cryptoKey, o.cryptoKey);
+			if(cmp != 0) return cmp;
+		}
+		if(docName == null && o.docName != null) return -1;
+		if(docName != null && o.docName == null) return 1;
+		if(docName != null && o.docName != null) {
+			cmp = docName.compareTo(o.docName);
+			if(cmp != 0) return cmp;
+		}
+		if(extra != null) {
+			// Same type will have same cryptoKey != null
+			cmp = Fields.compareBytes(extra, o.extra);
+			if(cmp != 0) return cmp;
+		}
+		if(metaStr != null && o.metaStr == null) return 1;
+		if(metaStr == null && o.metaStr != null) return -1;
+		if(metaStr != null && o.metaStr != null) {
+			if(metaStr.length > o.metaStr.length) return 1;
+			if(metaStr.length < o.metaStr.length) return -1;
+			for(int i=0;i<metaStr.length;i++) {
+				cmp = metaStr[i].compareTo(o.metaStr[i]);
+				if(cmp != 0) return cmp;
+			}
+		}
+		if(suggestedEdition > o.suggestedEdition) return 1;
+		if(suggestedEdition < o.suggestedEdition) return -1;
+		return 0;
+	}
+	
+	public static final Comparator<FreenetURI> FAST_COMPARATOR = new Comparator<FreenetURI>() {
+
+		@Override
+		public int compare(FreenetURI uri0, FreenetURI uri1) {
+			// Unfortunately the hashCode's may not have been computed yet.
+			// But it's still cheaper to recompute them in the long run.
+			int hash0 = uri0.hashCode();
+			int hash1 = uri1.hashCode();
+			if(hash0 > hash1) return 1;
+			else if(hash1 > hash0) return -1;
+			return uri0.compareTo(uri1);
+		}
+		
+	};
 
 	// TODO add something like the following?
 	// public boolean isUpdatable() { return isUSK() || isSSKForUSK() }

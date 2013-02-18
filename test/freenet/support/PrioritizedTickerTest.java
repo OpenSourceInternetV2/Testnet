@@ -35,7 +35,7 @@ public class PrioritizedTickerTest extends TestCase {
 		}
 		assert(ticker.queuedJobs() == 0);
 		ticker.queueTimedJob(simpleRunnable, 0);
-		Thread.sleep(10);
+		Thread.sleep(50);
 		synchronized(PrioritizedTickerTest.this) {
 			assert(runCount == 1);
 		}
@@ -56,34 +56,35 @@ public class PrioritizedTickerTest extends TestCase {
 	}
 
 	public void testDeduping() throws InterruptedException {
+		if(!TestProperty.EXTENSIVE) return; // FIXME unreliable test, only run on -Dtest.extensive=true
 		synchronized(PrioritizedTickerTest.this) {
 			runCount = 0;
 		}
 		assert(ticker.queuedJobs() == 0);
-		ticker.queueTimedJob(simpleRunnable, "De-dupe test", 100, false, true);
+		ticker.queueTimedJob(simpleRunnable, "De-dupe test", 200, false, true);
 		assert(ticker.queuedJobs() == 1);
-		ticker.queueTimedJob(simpleRunnable, "De-dupe test", 150, false, true);
+		ticker.queueTimedJob(simpleRunnable, "De-dupe test", 300, false, true);
 		assert(ticker.queuedJobs() == 1);
-		Thread.sleep(110);
+		Thread.sleep(220);
 		synchronized(PrioritizedTickerTest.this) {
 			assert(runCount == 1);
 		}
 		assert(ticker.queuedJobs() == 0);
-		Thread.sleep(100);
+		Thread.sleep(200);
 		synchronized(PrioritizedTickerTest.this) {
 			assert(runCount == 1);
 		}
 		// Now backwards
-		ticker.queueTimedJob(simpleRunnable, "De-dupe test", 150, false, true);
+		ticker.queueTimedJob(simpleRunnable, "De-dupe test", 300, false, true);
 		assert(ticker.queuedJobs() == 1);
-		ticker.queueTimedJob(simpleRunnable, "De-dupe test", 100, false, true);
+		ticker.queueTimedJob(simpleRunnable, "De-dupe test", 200, false, true);
 		assert(ticker.queuedJobs() == 1);
-		Thread.sleep(110);
+		Thread.sleep(220);
 		synchronized(PrioritizedTickerTest.this) {
 			assert(runCount == 2);
 		}
 		assert(ticker.queuedJobs() == 0);
-		Thread.sleep(100);
+		Thread.sleep(200);
 		synchronized(PrioritizedTickerTest.this) {
 			assert(runCount == 2);
 		}
